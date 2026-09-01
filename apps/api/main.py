@@ -62,14 +62,25 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
         )
         import yt_dlp
 
-        # Download best direct mp4 stream (avoids hard ffmpeg merge requirement)
         ydl_opts = {
-            "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+            "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "outtmpl": target_video_path,
             "quiet": False,
             "no_warnings": True,
             "overwrites": True,
         }
+
+        # Automatically locate pre-bundled FFmpeg binary from imageio-ffmpeg
+        try:
+            import imageio_ffmpeg
+
+            ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+            if ffmpeg_path and os.path.exists(ffmpeg_path):
+                ydl_opts["ffmpeg_location"] = ffmpeg_path
+        except Exception as fe:
+            print(f"[FFmpeg Loader Warning] {fe}")
+            ydl_opts["format"] = "best[ext=mp4]/best"
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
