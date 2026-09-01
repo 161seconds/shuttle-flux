@@ -30,7 +30,7 @@ export default function Home() {
   // Poll processing progress if active
   useEffect(() => {
     let timer: any = null;
-    if (activeMatchId && processingStatus && processingStatus.status === "processing") {
+    if (activeMatchId && (!processingStatus || processingStatus.status === "processing")) {
       timer = setInterval(async () => {
         try {
           const status = await getProcessingStatus(activeMatchId);
@@ -40,7 +40,7 @@ export default function Home() {
             setAnalytics(data);
           } else if (status.status === "failed" || status.status === "cancelled") {
             if (status.status === "failed") {
-              alert(`Processing failed: ${status.error_message || "Unknown error"}`);
+              alert(`Xử lý video thất bại: ${status.error_message || "Lỗi không xác định"}`);
             }
             setActiveMatchId(null);
             setProcessingStatus(null);
@@ -50,8 +50,10 @@ export default function Home() {
         }
       }, 1000);
     }
-    return () => clearInterval(timer);
-  }, [activeMatchId, processingStatus]);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [activeMatchId, processingStatus?.status]);
 
   const handleFileUpload = async (file: File) => {
     try {
@@ -65,7 +67,7 @@ export default function Home() {
         current_stage: "preprocessing",
       });
     } catch (err: any) {
-      alert(`Upload error: ${err.message}`);
+      alert(`Lỗi tải tệp: ${err.message}`);
     } finally {
       setIsUploading(false);
     }
@@ -83,7 +85,7 @@ export default function Home() {
         current_stage: "downloading_youtube",
       });
     } catch (err: any) {
-      alert(`YouTube Ingestion Error: ${err.message}`);
+      alert(`Lỗi xử lý link YouTube: ${err.message}`);
     } finally {
       setIsUploading(false);
     }

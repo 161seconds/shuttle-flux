@@ -75,38 +75,38 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
   const stages = [
     {
       key: "downloading_youtube",
-      label: "Downloading YouTube Video Stream",
-      desc: "Fetching video & audio stream via yt-dlp",
+      label: "Tải Luồng Video YouTube",
+      desc: "Trích xuất luồng video & âm thanh tốc độ cao qua yt-dlp",
       range: [0, 20],
     },
     {
       key: "preprocessing",
-      label: "Video Ingestion & Frame Normalization",
-      desc: "Extracting video metadata & verifying resolution",
+      label: "Tiền Xử Lý & Chuẩn Hóa Khung Hình",
+      desc: "Trích xuất metadata FPS, độ phân giải và giải mã video",
       range: [20, 35],
     },
     {
       key: "court_calibration",
-      label: "Court Landmarks & Homography Calibration",
-      desc: "Perspective transformation & 2D coordinate mapping",
+      label: "Căn Chỉnh Tọa Độ & Ma Trận Homography",
+      desc: "Chuyển đổi góc nhìn camera sang tọa độ sân 2D chuẩn BWF",
       range: [35, 50],
     },
     {
       key: "detection_and_tracking",
-      label: "Player & Shuttlecock AI Tracking",
-      desc: "YOLO detection & ByteTrack temporal association",
+      label: "Thị Giác AI: Nhận Diện VĐV & Quả Cầu",
+      desc: "Mô hình YOLOv8 + ByteTrack + OCR nhận diện bảng điểm",
       range: [50, 80],
     },
     {
       key: "analytics",
-      label: "Movement & Rally Analytics Computation",
-      desc: "Calculating velocities, court heatmaps, and rallies",
+      label: "Tính Toán Thống Kê & Phân Tích Đường Cầu",
+      desc: "Tính vận tốc, biểu đồ nhiệt (Heatmap), vùng kiểm soát Voronoi",
       range: [80, 95],
     },
     {
       key: "completed",
-      label: "Rendering & Dashboard Ready",
-      desc: "Compiling player stats & match intelligence",
+      label: "Hoàn Tất & Khởi Tạo Dashboard",
+      desc: "Tổng hợp dữ liệu và sẵn sàng phát đồng bộ 60 FPS",
       range: [95, 100],
     },
   ];
@@ -116,13 +116,13 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
       <div className="text-center mb-8">
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-cyan-950/60 border border-cyan-800 text-cyan-400 text-xs font-semibold mb-4">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>AI-Powered Badminton Match Analytics</span>
+          <span>Hệ Thống Phân Tích Cầu Lông AI Toàn Diện</span>
         </div>
         <h2 className="text-3xl font-extrabold text-white tracking-tight sm:text-4xl">
-          Analyze Your Badminton Match with AI
+          Phân Tích Trận Đấu Cầu Lông Bằng AI
         </h2>
         <p className="mt-3 text-base text-gray-400 max-w-2xl mx-auto">
-          Paste a YouTube match link or upload video footage to extract 2D court trajectories, player speed profiles, heatmaps, and rally breakdowns.
+          Dán link YouTube hoặc tải video trận đấu để trích xuất quỹ đạo sân 2D, biểu đồ tốc độ, vùng chiếm lĩnh sân và các pha cầu (rallies).
         </p>
       </div>
 
@@ -139,7 +139,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
               }`}
             >
               <Youtube className="w-4 h-4 text-red-500" />
-              <span>Paste YouTube Link</span>
+              <span>Dán Link YouTube</span>
             </button>
             <button
               onClick={() => setActiveTab("file")}
@@ -150,7 +150,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
               }`}
             >
               <UploadCloud className="w-4 h-4 text-brand-cyan" />
-              <span>Upload Video File</span>
+              <span>Tải Tệp Video Từ Máy</span>
             </button>
           </div>
 
@@ -159,7 +159,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
               <form onSubmit={handleYoutubeSubmit} className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium uppercase tracking-wider text-gray-400 mb-2">
-                    YouTube Video URL
+                    Đường dẫn Video YouTube
                   </label>
                   <div className="flex flex-col sm:flex-row gap-3">
                     <div className="relative flex-1">
@@ -173,7 +173,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                           setYoutubeUrl(e.target.value);
                           setUrlError("");
                         }}
-                        placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                        placeholder="https://www.youtube.com/watch?v=... hoặc https://youtu.be/..."
                         className="w-full pl-10 pr-4 py-3 bg-surface border border-gray-700 focus:border-red-500 focus:ring-1 focus:ring-red-500 rounded-xl text-sm text-white placeholder-gray-500 transition-all outline-none"
                       />
                     </div>
@@ -186,7 +186,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
                         <>
-                          <span>Fetch & Analyze</span>
+                          <span>Tải & Phân Tích</span>
                           <ArrowRight className="w-4 h-4" />
                         </>
                       )}
@@ -198,9 +198,9 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                 <div className="flex flex-wrap items-center justify-between text-xs text-gray-500 pt-3 border-t border-gray-800/80">
                   <div className="flex items-center space-x-2">
                     <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                    <span>Supports all standard YouTube videos & Shorts</span>
+                    <span>Hỗ trợ tất cả video YouTube, Shorts & Highlight</span>
                   </div>
-                  <span className="text-gray-400">Stream download powered by yt-dlp</span>
+                  <span className="text-gray-400">Tự động nén luồng và xử lý tức thì</span>
                 </div>
               </form>
             </div>
@@ -226,12 +226,12 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
               <div className="mx-auto w-14 h-14 rounded-full bg-surface-light flex items-center justify-center mb-3 text-brand-cyan shadow-inner">
                 <UploadCloud className="w-7 h-7" />
               </div>
-              <h3 className="text-base font-semibold text-white">Drag & drop your badminton video here</h3>
-              <p className="text-xs text-gray-400 mt-1">or click to browse from your computer</p>
+              <h3 className="text-base font-semibold text-white">Kéo & thả video trận đấu vào đây</h3>
+              <p className="text-xs text-gray-400 mt-1">hoặc nhấn để chọn tệp từ máy tính</p>
               <div className="mt-4 flex items-center justify-center space-x-3 text-[11px] text-gray-500">
-                <span>MP4, MOV, AVI</span>
+                <span>Định dạng MP4, MOV, AVI</span>
                 <span>•</span>
-                <span>Up to 1080p 60fps recommended</span>
+                <span>Khuyến nghị 720p/1080p 30/60fps</span>
               </div>
             </div>
           )}
@@ -242,9 +242,9 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
             <div className="flex items-center space-x-3">
               <Film className="w-6 h-6 text-brand-cyan animate-pulse" />
               <div>
-                <h3 className="font-bold text-white">Processing Match: {processingStatus.match_id}</h3>
+                <h3 className="font-bold text-white">Đang Xử Lý Trận Đấu: {processingStatus.match_id}</h3>
                 <p className="text-xs text-gray-400">
-                  Current stage:{" "}
+                  Giai đoạn hiện tại:{" "}
                   <span className="text-cyan-300 font-medium">
                     {stages.find((s) => s.key === processingStatus.current_stage)?.label ||
                       processingStatus.current_stage}
@@ -350,14 +350,14 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                     </div>
                   </div>
 
-                  {/* Individual Mini Progress Bar for each Stage */}
-                  <div className="w-full h-1.5 bg-gray-900/90 rounded-full overflow-hidden border border-gray-800/80">
+                  {/* Sub-Progress Mini Bar */}
+                  <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all duration-300 ${
+                      className={`h-full transition-all duration-300 rounded-full ${
                         isPast
                           ? "bg-emerald-500"
                           : isCurrent
-                          ? "bg-gradient-to-r from-brand-cyan via-cyan-400 to-brand-amber shadow-sm shadow-cyan-500/50"
+                          ? "bg-cyan-400 animate-pulse"
                           : "bg-transparent"
                       }`}
                       style={{ width: `${stagePct}%` }}

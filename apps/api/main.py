@@ -83,17 +83,18 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
                         stage="downloading_youtube",
                     )
 
-        # Optimize format to 720p/480p: downloads 5x faster & uses 85% less disk space
+        # Optimize format to 720p: downloads fast, enforces MP4 container
         ydl_opts = {
-            "format": "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[height<=720]/best[ext=mp4]/best",
+            "format": "best[ext=mp4][height<=720]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
             "outtmpl": target_video_path,
+            "merge_output_format": "mp4",
             "quiet": False,
             "no_warnings": True,
             "overwrites": True,
             "progress_hooks": [yt_progress_hook],
         }
 
-        # Automatically locate pre-bundled FFmpeg binary from imageio-ffmpeg
+        # Locate pre-bundled FFmpeg binary from imageio-ffmpeg
         try:
             import imageio_ffmpeg
 
@@ -102,16 +103,28 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
                 ydl_opts["ffmpeg_location"] = ffmpeg_path
         except Exception as fe:
             print(f"[FFmpeg Loader Warning] {fe}")
-            ydl_opts["format"] = "best[ext=mp4]/best"
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
-        if not os.path.exists(target_video_path):
+        # Check if file was saved with extension variant (e.g. .mkv or .webm)
+        actual_path = target_video_path
+        if not os.path.exists(actual_path):
+            base_without_ext = os.path.splitext(target_video_path)[0]
+            dir_name = os.path.dirname(target_video_path)
+            matches = [
+                os.path.join(dir_name, f)
+                for f in os.listdir(dir_name)
+                if f.startswith(os.path.basename(base_without_ext))
+            ]
+            if matches:
+                actual_path = matches[0]
+
+        if not os.path.exists(actual_path):
             raise FileNotFoundError(f"Downloaded video file not found at {target_video_path}")
 
         # Continue with CV / ML analytics pipeline
-        process_video_pipeline(match_id, target_video_path)
+        process_video_pipeline(match_id, actual_path)
     except Exception as e:
         print(f"[YouTube Pipeline Error] {e}")
         update_job_status(
