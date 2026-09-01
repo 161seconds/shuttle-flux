@@ -8,7 +8,7 @@ import sys
 import uuid
 import math
 import numpy as np
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -239,6 +239,15 @@ async def ingest_youtube_match(
 async def get_match_processing_status(match_id: str):
     """Polls processing progress and pipeline stage."""
     status_data = get_job_status(match_id)
+    if status_data.get("status") in ["cancelled", "failed"]:
+        return ProcessingStatusResponse(**status_data)
+    if match_id.startswith("demo"):
+        return ProcessingStatusResponse(
+            match_id=match_id,
+            status="completed",
+            progress_percentage=100,
+            current_stage="completed",
+        )
     return ProcessingStatusResponse(**status_data)
 
 
@@ -255,6 +264,9 @@ async def cancel_match_processing(match_id: str):
 @app.get("/api/v1/matches/{match_id}/analytics")
 async def get_match_analytics(match_id: str):
     """Retrieves full computed match analytics, or live partial streaming analytics if in-progress."""
+    if match_id.startswith("demo"):
+        return generate_demo_analytics(match_id)
+
     analytics = get_analytics_result(match_id)
     if analytics:
         return analytics
@@ -294,10 +306,8 @@ async def list_matches():
     return list_all_matches()
 
 
-@app.post("/api/v1/matches/demo")
-async def create_demo_match():
-    """Creates an instant synthetic demo match with complete rich analytics."""
-    match_id = f"demo-{str(uuid.uuid4())[:4]}"
+def generate_demo_analytics(match_id: str = "demo") -> Dict[str, Any]:
+    """Generates complete synthetic demo match analytics for instant testing."""
     mock_analytics = {
         "metadata": {
             "match_id": match_id,
@@ -467,6 +477,16 @@ async def create_demo_match():
             },
         })
 
+    return mock_analytics
+
+
+@app.get("/api/v1/matches/demo/analytics")
+@app.get("/api/v1/matches/demo")
+@app.post("/api/v1/matches/demo")
+async def create_demo_match():
+    """Creates an instant synthetic demo match with complete rich analytics."""
+    match_id = f"demo-{str(uuid.uuid4())[:4]}"
+    mock_analytics = generate_demo_analytics(match_id)
     save_analytics_result(match_id, mock_analytics)
     update_job_status(match_id, status="completed", progress=100, stage="completed")
     return {"match_id": match_id, "status": "completed", "analytics": mock_analytics}
