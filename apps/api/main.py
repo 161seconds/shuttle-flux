@@ -385,6 +385,7 @@ async def create_demo_match():
 
     save_analytics_result(match_id, mock_analytics)
     update_job_status(match_id, status="completed", progress=100, stage="completed")
+    return {"match_id": match_id, "status": "completed", "analytics": mock_analytics}
 
 
 @app.post("/api/v1/storage/cleanup")
@@ -396,5 +397,3 @@ async def cleanup_video_storage(keep_latest_n: int = 1):
         "message": f"Freed {res['freed_mb']} MB of disk space ({res['deleted_count']} video files cleaned).",
         "details": res,
     }
-
-    return {"match_id": match_id, "status": "completed", "analytics": mock_analytics}

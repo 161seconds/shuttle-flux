@@ -69,30 +69,35 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
     if (aiVideoRef.current) aiVideoRef.current.playbackRate = playbackSpeed;
   }, [playbackSpeed]);
 
-  // Fallback simulation timer if video tag fails or backend video not present
+  // 60 FPS High-performance Animation Loop directly reading video hardware time
   useEffect(() => {
-    let interval: any = null;
-    if (isPlaying && videoError) {
-      interval = setInterval(() => {
+    let animId: number;
+
+    const tick = () => {
+      const activeVideo = aiVideoRef.current || rawVideoRef.current;
+      if (activeVideo && !videoError) {
+        if (!activeVideo.paused && !activeVideo.ended) {
+          const t = activeVideo.currentTime;
+          setCurrentTime(t);
+
+          // Keep raw video in sync
+          if (rawVideoRef.current && Math.abs(rawVideoRef.current.currentTime - t) > 0.06) {
+            rawVideoRef.current.currentTime = t;
+          }
+        }
+      } else if (isPlaying && videoError) {
         setCurrentTime((prev) => {
-          const next = prev + 0.05 * playbackSpeed;
+          const next = prev + 0.016 * playbackSpeed;
           return next >= duration ? 0 : next;
         });
-      }, 50);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying, playbackSpeed, duration, videoError]);
-
-  const handleTimeUpdate = () => {
-    if (aiVideoRef.current && !videoError) {
-      const t = aiVideoRef.current.currentTime;
-      setCurrentTime(t);
-      // Synchronize raw video if it drifts by more than 0.08s
-      if (rawVideoRef.current && Math.abs(rawVideoRef.current.currentTime - t) > 0.08) {
-        rawVideoRef.current.currentTime = t;
       }
-    }
-  };
+
+      animId = requestAnimationFrame(tick);
+    };
+
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, [isPlaying, videoError, playbackSpeed, duration]);
 
   const handleSeek = (time: number) => {
     setCurrentTime(time);
@@ -102,13 +107,34 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
     }
   };
 
-  // Find matching frame record for current timestamp
-  const currentFrame = frameRecords.reduce<FrameRecord | undefined>((prev, curr) => {
-    if (!prev) return curr;
-    return Math.abs(curr.timestamp - currentTime) < Math.abs(prev.timestamp - currentTime)
-      ? curr
-      : prev;
-  }, undefined);
+  // Find matching frame record with binary search and seamless duration wrapping
+  const currentFrame = React.useMemo(() => {
+    if (!frameRecords || frameRecords.length === 0) return undefined;
+
+    const maxTs = frameRecords[frameRecords.length - 1].timestamp;
+    const searchTime = maxTs > 0 ? (currentTime > maxTs ? currentTime % maxTs : currentTime) : currentTime;
+
+    let low = 0;
+    let high = frameRecords.length - 1;
+    let bestIdx = 0;
+    let minDiff = Infinity;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const diff = Math.abs(frameRecords[mid].timestamp - searchTime);
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestIdx = mid;
+      }
+      if (frameRecords[mid].timestamp < searchTime) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    return frameRecords[bestIdx];
+  }, [frameRecords, currentTime]);
 
   return (
     <div className="glass-panel rounded-2xl p-6 border border-gray-700 shadow-2xl mb-8">
@@ -212,7 +238,6 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                   playsInline
                   muted={isMuted}
                   autoPlay
-                  onTimeUpdate={handleTimeUpdate}
                   onEnded={() => setIsPlaying(false)}
                   onError={() => setVideoError(true)}
                   className="w-full h-full object-contain bg-black"

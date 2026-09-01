@@ -50,12 +50,14 @@ def process_video_pipeline(match_id: str, video_path: str):
         # Step 2: Court Calibration
         update_job_status(match_id, status="processing", progress=38, stage="court_calibration")
         calibrator = CourtCalibrator(is_doubles=False)
-        # Use initial court corners
+        vid_w = float(metadata.get("width", 1280))
+        vid_h = float(metadata.get("height", 720))
+        # Use dynamic court corner calibration scaled to video aspect ratio
         calibrator.calibrate_standard_corners(
-            bottom_left_px=(150, 650),
-            bottom_right_px=(850, 650),
-            top_left_px=(350, 150),
-            top_right_px=(650, 150),
+            bottom_left_px=(vid_w * 0.12, vid_h * 0.92),
+            bottom_right_px=(vid_w * 0.88, vid_h * 0.92),
+            top_left_px=(vid_w * 0.32, vid_h * 0.28),
+            top_right_px=(vid_w * 0.68, vid_h * 0.28),
         )
 
         if is_job_cancelled(match_id):
