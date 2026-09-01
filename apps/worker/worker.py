@@ -71,10 +71,16 @@ def process_video_pipeline(match_id: str, video_path: str):
         frame_records = []
         frame_count = 0
 
-        for frame_idx, timestamp, frame in frame_generator(video_path, max_frames=600):
+        # Process frames across the full video (step every 2 frames if > 600 frames for speed)
+        step_stride = 2 if total_frames > 600 else 1
+
+        for frame_idx, timestamp, frame in frame_generator(video_path, max_frames=None):
             if is_job_cancelled(match_id):
                 print(f"[Worker] Match {match_id} cancelled by user. Terminating worker.")
                 return
+
+            if frame_idx % step_stride != 0:
+                continue
 
             # Run detection
             raw_dets = detector.run_frame(frame)
@@ -104,38 +110,40 @@ def process_video_pipeline(match_id: str, video_path: str):
                     ]
                 transformed_players.append(p_copy)
 
-            # Shuttle coordinates (simulate realistic trajectory if none detected)
+            # Shuttle coordinates (Real detection only - NO fake floating yellow dot)
             shuttle = tracked.get("shuttle", {})
-            if not shuttle.get("visible", False):
-                # Smooth sinusoidal badminton rally oscillation for demo simulation
-                sim_y = 0.5 + 0.35 * np.sin(timestamp * 2.2)
-                sim_x = 0.5 + 0.25 * np.cos(timestamp * 1.8)
-                shuttle = {
-                    "frame_idx": frame_idx,
-                    "timestamp": timestamp,
-                    "x_norm": round(float(sim_x), 4),
-                    "y_norm": round(float(sim_y), 4),
-                    "center_norm": [round(float(sim_x), 4), round(float(sim_y), 4)],
-                    "visible": True,
-                    "confidence": 0.85,
-                    "speed_norm": 0.3,
-                }
-            elif "center" in shuttle and w > 0 and h > 0:
+            if shuttle and shuttle.get("visible", False) and "center" in shuttle and w > 0 and h > 0:
                 cx, cy = shuttle["center"]
-                shuttle["center_norm"] = [round(float(cx / w), 4), round(float(cy / h), 4)]
+                shuttle_pt_arr = np.array([[cx, cy]], dtype=np.float32)
+                court_shuttle_pt = calibrator.transform_image_to_court(shuttle_pt_arr)
+                shuttle_record = {
+                    "frame_idx": frame_idx,
+                    "timestamp": round(timestamp, 3),
+                    "x_norm": round(float(court_shuttle_pt[0, 0]), 4),
+                    "y_norm": round(float(court_shuttle_pt[0, 1]), 4),
+                    "center_norm": [round(float(cx / w), 4), round(float(cy / h), 4)],
+                    "visible": True,
+                    "confidence": shuttle.get("confidence", 0.85),
+                }
+            else:
+                shuttle_record = {
+                    "frame_idx": frame_idx,
+                    "timestamp": round(timestamp, 3),
+                    "visible": False,
+                }
 
             frame_records.append(
                 {
                     "frame_idx": frame_idx,
                     "timestamp": round(timestamp, 3),
                     "players": transformed_players,
-                    "shuttle": shuttle,
+                    "shuttle": shuttle_record,
                 }
             )
 
             frame_count += 1
             if total_frames > 0 and frame_count % 15 == 0:
-                current_pct = min(80, int(50 + (frame_count / total_frames) * 30))
+                current_pct = min(80, int(50 + (frame_idx / total_frames) * 30))
                 update_job_status(match_id, status="processing", progress=current_pct, stage="detection_and_tracking")
 
         # Step 5: Analytics Calculation
@@ -149,8 +157,8 @@ def process_video_pipeline(match_id: str, video_path: str):
 
         update_job_status(match_id, status="processing", progress=95, stage="completed")
 
-        # Attach raw frame samples for frontend Radar visualization
-        analytics_result["frame_records"] = frame_records[::2]  # sample every 2 frames for compact UI sync
+        # Attach frame records for frontend Radar and Video Player synchronization
+        analytics_result["frame_records"] = frame_records
 
         # Step 6: Persist Results
         save_analytics_result(match_id, analytics_result)

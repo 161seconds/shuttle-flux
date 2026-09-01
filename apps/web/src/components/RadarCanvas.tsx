@@ -140,17 +140,17 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
       ctx.fillStyle = "#6b7280";
       ctx.font = "bold 9px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("NEAR COURT (P1)", centerX, y0 + 16);
-      ctx.fillText("FAR COURT (P2)", centerX, y1 - 8);
+      ctx.fillText("SÂN GẦN (VĐV 1)", centerX, y0 + 16);
+      ctx.fillText("SÂN XA (VĐV 2)", centerX, y1 - 8);
 
       if (currentFrame) {
-        // 1. Render Shuttlecock Trajectory Trail
+        // 1. Render Shuttlecock Trajectory Trail (ONLY when visible)
         if (currentFrame.shuttle && currentFrame.shuttle.visible) {
           const sx = x0 + Math.max(0.05, Math.min(0.95, currentFrame.shuttle.x_norm)) * courtW;
           const sy = y0 + Math.max(0.05, Math.min(0.95, currentFrame.shuttle.y_norm)) * courtH;
 
           shuttleTrailRef.current.push({ x: sx, y: sy, time: Date.now() });
-          if (shuttleTrailRef.current.length > 18) {
+          if (shuttleTrailRef.current.length > 12) {
             shuttleTrailRef.current.shift();
           }
 
@@ -162,22 +162,25 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
               if (i === 0) ctx.moveTo(pt.x, pt.y);
               else ctx.lineTo(pt.x, pt.y);
             }
-            ctx.strokeStyle = "rgba(255, 234, 0, 0.45)";
-            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+            ctx.lineWidth = 2.0;
             ctx.stroke();
           }
 
-          // Shuttle glowing head
-          ctx.shadowColor = "#ffea00";
-          ctx.shadowBlur = 12;
-          ctx.fillStyle = "#ffea00";
+          // Shuttle glowing white head
+          ctx.shadowColor = "#ffffff";
+          ctx.shadowBlur = 10;
+          ctx.fillStyle = "#ffffff";
           ctx.beginPath();
-          ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+          ctx.arc(sx, sy, 5.5, 0, Math.PI * 2);
           ctx.fill();
-          ctx.strokeStyle = "#ffffff";
+          ctx.strokeStyle = "#00e5ff";
           ctx.lineWidth = 1.5;
           ctx.stroke();
           ctx.shadowBlur = 0;
+        } else {
+          // Clear trail if shuttle is not visible
+          shuttleTrailRef.current = [];
         }
 
         // 2. Render Players & Motion Trails
@@ -219,17 +222,13 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
           ctx.beginPath();
           ctx.arc(px, py, 8, 0, Math.PI * 2);
           ctx.fill();
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = 2;
-          ctx.stroke();
           ctx.shadowBlur = 0;
 
-          // Label
-          ctx.fillStyle = "#ffffff";
+          // Player number label
+          ctx.fillStyle = "#000000";
           ctx.font = "bold 9px sans-serif";
           ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(`P${p.player_id}`, px, py);
+          ctx.fillText(isP1 ? "1" : "2", px, py + 3);
         });
       }
 
@@ -238,7 +237,7 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
 
     animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
-  }, [currentFrame, width, height]);
+  }, [currentFrame, width, height, showVoronoi]);
 
   return (
     <div className="flex flex-col items-center w-full">
