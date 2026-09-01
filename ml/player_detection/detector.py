@@ -6,7 +6,15 @@ Identifies and rejects all non-player officials on court:
   2. Service Judge (Trọng tài giao cầu ngồi đối diện)
   3. Far Baseline Line Judges (2-3 Trọng tài biên ngồi phía xa sau sân)
   4. Near Sideline Line Judges & Staff
+  5. Advertising board area personnel
 Accurately detects 1-2 active players per side for both 1v1 Singles and 2v2 Doubles.
+
+Changes:
+- YOLO inference resolution increased from 480→640 for better accuracy
+- Confidence threshold raised from 0.20→0.30 to reduce false positives
+- Tighter dynamic corridor at net level to reject advertising area personnel
+- Added minimum bounding box height gate (norm_h >= 0.10) to reject small distant staff
+- Added top-N confidence gating: keep only top 2 (singles) or top 4 (doubles) detections
 """
 
 from typing import List, Dict, Any, Optional
@@ -14,7 +22,7 @@ import numpy as np
 
 
 class PlayerDetector:
-    def __init__(self, model_path: Optional[str] = None, conf_threshold: float = 0.20):
+    def __init__(self, model_path: Optional[str] = None, conf_threshold: float = 0.30):
         self.conf_threshold = conf_threshold
         self.model = None
 
@@ -36,17 +44,23 @@ class PlayerDetector:
         norm_w: float,
     ) -> bool:
         """
-        Explicit filter to reject all BWF tournament officials:
+        Explicit filter to reject all BWF tournament officials and non-player personnel:
           - Main Umpire (High chair at net sideline)
           - Service Judge (Low chair opposite net post)
           - Far Baseline Line Judges (2-3 judges seated behind far baseline)
           - Near Corner Line Judges
+          - Advertising area personnel (left/right of court at net level)
         """
+        # 0. Minimum height gate: real players are tall enough in frame
+        # This filters out very small/distant staff and audience members
+        if norm_h < 0.10:
+            return True
+
         # 1. Far Baseline Line Judges (2-3 seated behind the far court baseline)
         # Broadcast far baseline is around y ~ 0.40 - 0.44. Seated line judges have y_bottom < 0.41 or small height
         if norm_y_bottom < 0.39:
             return True
-        if norm_y_bottom < 0.45 and norm_h < 0.09:
+        if norm_y_bottom < 0.45 and norm_h < 0.12:
             return True
 
         # 2. Main Umpire (Trọng tài chính - Sitting in elevated high chair near net)
@@ -69,11 +83,17 @@ class PlayerDetector:
         if norm_y_bottom > 0.88 and (norm_x < 0.15 or norm_x > 0.85):
             return True
 
-        # 5. Dynamic Perspective Court Corridor:
+        # 5. Advertising board area personnel (people standing near LED banners at net level)
+        # This catches people near the HSBC/sponsor banners on the sides of the court
+        if 0.42 <= norm_y_bottom <= 0.72 and (norm_x < 0.28 or norm_x > 0.72):
+            return True
+
+        # 6. Dynamic Perspective Court Corridor:
         # Interpolates playable boundary width from far court (narrow) to near court (wide)
+        # Tightened: far court starts at x=0.28-0.72, expands to x=0.12-0.88 at near baseline
         t_y = float(np.clip((norm_y_bottom - 0.40) / 0.52, 0.0, 1.0))
-        min_playable_x = 0.26 - 0.16 * t_y
-        max_playable_x = 0.74 + 0.16 * t_y
+        min_playable_x = 0.28 - 0.16 * t_y
+        max_playable_x = 0.72 + 0.16 * t_y
 
         if not (min_playable_x <= norm_x <= max_playable_x):
             return True
@@ -85,13 +105,14 @@ class PlayerDetector:
         Detects active players in frame.
         Supports both 1v1 Singles (2 players) and 2v2 Doubles (up to 4 players).
         Strictly rejects all umpires, service judges, and line judges.
+        Uses confidence gating to keep only the most confident detections.
         """
         h, w, _ = frame.shape
         if self.model is not None:
-            # Ultra-fast Person-only inference with optimized 480px input size
+            # Higher resolution inference (640px) for better detection accuracy
             results = self.model(
                 frame,
-                imgsz=480,
+                imgsz=640,
                 classes=[0],
                 conf=self.conf_threshold,
                 verbose=False,
@@ -129,7 +150,13 @@ class PlayerDetector:
                 )
 
             if raw_detections:
-                # Sort all valid on-court player detections by y_bottom (ascending: far court players come first, near players last)
+                # Sort by confidence descending, keep top detections to avoid ghost boxes
+                raw_detections.sort(key=lambda d: d["confidence"], reverse=True)
+
+                # Confidence gate: keep at most 4 detections (doubles max), usually 2 for singles
+                raw_detections = raw_detections[:4]
+
+                # Re-sort by y_bottom (ascending: far court players come first, near players last)
                 raw_detections.sort(key=lambda d: d["bottom_center"][1])
 
                 chosen = []

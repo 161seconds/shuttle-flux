@@ -59,17 +59,21 @@ def process_video_pipeline(match_id: str, video_path: str):
         calibrator = CourtCalibrator(is_doubles=False)
         court_detector = CourtKeypointDetector()
 
-        # Read sample frame from video to detect actual court nodes
-        sample_frame = None
-        for _, _, f_img in frame_generator(video_path, max_frames=5):
-            sample_frame = f_img
-            break
+        # Read multiple sample frames from video for robust court detection (multi-frame averaging)
+        sample_frames = []
+        for _, _, f_img in frame_generator(video_path, max_frames=15):
+            sample_frames.append(f_img)
+            if len(sample_frames) >= 5:
+                break
 
         vid_w = float(metadata.get("width", 1280))
         vid_h = float(metadata.get("height", 720))
 
-        if sample_frame is not None:
-            court_kp = court_detector.detect_keypoints(sample_frame)
+        # Run court detection on multiple frames for stability (detector averages internally)
+        court_kp = None
+        if sample_frames:
+            for sf in sample_frames:
+                court_kp = court_detector.detect_keypoints(sf)
         else:
             dummy = np.zeros((int(vid_h), int(vid_w), 3), dtype=np.uint8)
             court_kp = court_detector.detect_keypoints(dummy)

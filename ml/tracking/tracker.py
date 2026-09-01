@@ -47,7 +47,9 @@ class PlayerTracker:
         # Only activate doubles mode if there are >= 3 distinct, separated players in >= 35% of frames
         if len(deduped) >= 3 or len(near_dets) >= 2 or len(far_dets) >= 2:
             self.multi_player_frame_count += 1
-            if self.total_frames_tracked >= 15 and (self.multi_player_frame_count / self.total_frames_tracked) > 0.35:
+            # Require sustained multi-player detections: ≥50% of frames AND ≥30 frames observed
+            # This prevents brief referee leak-through from triggering doubles mode in a singles match
+            if self.total_frames_tracked >= 30 and (self.multi_player_frame_count / self.total_frames_tracked) > 0.50:
                 self.is_doubles_mode = True
 
         tracked_players = []
