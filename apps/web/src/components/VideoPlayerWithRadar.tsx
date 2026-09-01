@@ -545,12 +545,12 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                     <div className="absolute inset-0">
                       {/* Player 1 (Cyan - Near) and Player 2 (Amber - Far) */}
                       {currentFrame.players.map((p) => {
-                        let left = `${p.x_norm * 80 + 10}%`;
-                        let top = p.player_id === 1 ? "62%" : "22%";
-                        let width = "4.5rem";
-                        let height = "7.5rem";
-                        let footX = p.x_norm * 80 + 10;
-                        let footY = p.player_id === 1 ? 88 : 38;
+                        let left = `${p.x_norm * 70 + 15}%`;
+                        let top = p.player_id === 1 ? "68%" : "44%";
+                        let width = p.player_id === 1 ? "4.5rem" : "3.2rem";
+                        let height = p.player_id === 1 ? "6.8rem" : "4.0rem";
+                        let footX = p.x_norm * 70 + 15;
+                        let footY = p.player_id === 1 ? 90 : 54;
 
                         if (p.bbox_norm && p.bbox_norm.length === 4) {
                           const [bx1, by1, bx2, by2] = p.bbox_norm;

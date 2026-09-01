@@ -375,23 +375,55 @@ async def create_demo_match():
     # Generate synthetic radar frames for full 30 seconds
     for f in range(0, 900, 3):
         t = f / 30.0
+        # P1 (Near Player - Cyan): Bottom half of 2D court (y_norm in 0.65 - 0.88)
         p1_x = 0.5 + 0.20 * np.sin(t * 1.5)
-        p1_y = 0.25 + 0.12 * np.cos(t * 1.2)
+        p1_y = 0.75 + 0.12 * np.cos(t * 1.2)
+
+        # P2 (Far Player - Amber): Top half of 2D court across net (y_norm in 0.15 - 0.35)
         p2_x = 0.5 - 0.22 * np.sin(t * 1.4)
-        p2_y = 0.75 + 0.10 * np.cos(t * 1.1)
+        p2_y = 0.25 + 0.10 * np.cos(t * 1.1)
+
+        # Shuttlecock trajectory moving between players
+        shuttle_phase = np.sin(t * 2.8)
         shuttle_x = 0.5 + 0.25 * np.cos(t * 2.5)
-        shuttle_y = 0.5 + 0.38 * np.sin(t * 2.8)
+        shuttle_y = 0.5 + 0.35 * shuttle_phase
+
+        p1_bx1 = max(0.05, p1_x - 0.06)
+        p1_bx2 = min(0.95, p1_x + 0.06)
+        p2_bx1 = max(0.05, p2_x - 0.04)
+        p2_bx2 = min(0.95, p2_x + 0.04)
 
         mock_analytics["frame_records"].append({
             "frame_idx": f,
             "timestamp": round(t, 2),
             "players": [
-                {"player_id": 1, "x_norm": round(p1_x, 3), "y_norm": round(p1_y, 3), "bbox": [450, 600, 550, 800], "confidence": 0.95},
-                {"player_id": 2, "x_norm": round(p2_x, 3), "y_norm": round(p2_y, 3), "bbox": [460, 250, 540, 420], "confidence": 0.93},
+                {
+                    "player_id": 1,
+                    "label": "Player 1 (Viktor A.)",
+                    "x_norm": round(float(p1_x), 3),
+                    "y_norm": round(float(p1_y), 3),
+                    "bbox": [int(p1_bx1 * 1280), int(0.65 * 720), int(p1_bx2 * 1280), int(0.90 * 720)],
+                    "bbox_norm": [round(float(p1_bx1), 3), 0.65, round(float(p1_bx2), 3), 0.90],
+                    "bottom_center": [p1_x * 1280, 0.90 * 720],
+                    "confidence": 0.95,
+                },
+                {
+                    "player_id": 2,
+                    "label": "Player 2 (Shi Y.)",
+                    "x_norm": round(float(p2_x), 3),
+                    "y_norm": round(float(p2_y), 3),
+                    "bbox": [int(p2_bx1 * 1280), int(0.42 * 720), int(p2_bx2 * 1280), int(0.55 * 720)],
+                    "bbox_norm": [round(float(p2_bx1), 3), 0.42, round(float(p2_bx2), 3), 0.55],
+                    "bottom_center": [p2_x * 1280, 0.55 * 720],
+                    "confidence": 0.93,
+                },
             ],
             "shuttle": {
-                "x_norm": round(shuttle_x, 3),
-                "y_norm": round(shuttle_y, 3),
+                "frame_idx": f,
+                "timestamp": round(t, 2),
+                "x_norm": round(float(shuttle_x), 3),
+                "y_norm": round(float(shuttle_y), 3),
+                "center_norm": [round(float(shuttle_x), 3), round(float(0.48 + 0.35 * (shuttle_y - 0.5)), 3)],
                 "visible": True,
                 "confidence": 0.90,
             },
