@@ -27,7 +27,7 @@ export default function Home() {
   const [isLoadingDemo, setIsLoadingDemo] = useState(false);
   const [selectedRallyTime, setSelectedRallyTime] = useState<number | null>(null);
 
-  // Poll processing progress if active
+  // Poll processing progress & live frame streaming if active
   useEffect(() => {
     let timer: any = null;
     if (activeMatchId && (!processingStatus || processingStatus.status === "processing")) {
@@ -35,6 +35,24 @@ export default function Home() {
         try {
           const status = await getProcessingStatus(activeMatchId);
           setProcessingStatus(status);
+
+          // Stream live partial analytics as soon as frames are processed
+          try {
+            const liveData = await getMatchAnalytics(activeMatchId);
+            if (liveData && liveData.frame_records && liveData.frame_records.length > 0) {
+              setAnalytics((prev) => {
+                if (!prev) return liveData;
+                return {
+                  ...prev,
+                  ...liveData,
+                  frame_records: liveData.frame_records,
+                };
+              });
+            }
+          } catch (_) {
+            // Still preparing first batch
+          }
+
           if (status.status === "completed") {
             const data = await getMatchAnalytics(activeMatchId);
             setAnalytics(data);
@@ -63,8 +81,65 @@ export default function Home() {
       setProcessingStatus({
         match_id: res.match_id,
         status: "processing",
-        progress_percentage: 10,
+        progress_percentage: 15,
         current_stage: "preprocessing",
+      });
+
+      // Immediately enter Live AI Stream mode so the user can watch the video right away
+      setAnalytics({
+        metadata: {
+          match_id: res.match_id,
+          fps: 30,
+          total_frames: 300,
+          duration_seconds: 30,
+          mode: "Đơn (Singles 1v1)",
+        },
+        overview: {
+          total_rallies: 0,
+          total_shots: 0,
+          active_play_duration_sec: 0,
+          total_distance_player_1_m: 0,
+          total_distance_player_2_m: 0,
+        },
+        players: {
+          player_1: {
+            player_id: 1,
+            label: "VĐV 1 (Gần)",
+            side: "Sân Gần (Nửa Dưới)",
+            distance_meters: 0,
+            avg_speed_mps: 0,
+            max_speed_mps: 0,
+            active_time_seconds: 0,
+            court_control_pct: 50,
+            zone_occupancy: {},
+          },
+          player_2: {
+            player_id: 2,
+            label: "VĐV 2 (Xa)",
+            side: "Sân Xa (Bên Kia Lưới)",
+            distance_meters: 0,
+            avg_speed_mps: 0,
+            max_speed_mps: 0,
+            active_time_seconds: 0,
+            court_control_pct: 50,
+            zone_occupancy: {},
+          },
+        },
+        rallies: [],
+        hits: [],
+        court_nodes: {
+          top_left: [0.285, 0.442],
+          top_right: [0.715, 0.442],
+          net_left: [0.225, 0.532],
+          net_right: [0.775, 0.532],
+          far_service_left: [0.270, 0.490],
+          far_service_right: [0.730, 0.490],
+          near_service_left: [0.210, 0.588],
+          near_service_right: [0.790, 0.588],
+          bottom_left: [0.165, 0.895],
+          bottom_right: [0.835, 0.895],
+        },
+        frame_records: [],
       });
     } catch (err: any) {
       alert(`Lỗi tải tệp: ${err.message}`);
@@ -155,6 +230,7 @@ export default function Home() {
             <VideoPlayerWithRadar
               analytics={analytics}
               selectedRallyTime={selectedRallyTime}
+              processingStatus={processingStatus}
             />
 
             <RallyTimeline

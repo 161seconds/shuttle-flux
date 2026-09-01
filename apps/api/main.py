@@ -33,6 +33,7 @@ from apps.api.storage import (
     cancel_job,
     is_job_cancelled,
     get_analytics_result,
+    get_partial_analytics,
     list_all_matches,
     update_job_status,
     save_analytics_result,
@@ -234,14 +235,20 @@ async def cancel_match_processing(match_id: str):
 
 @app.get("/api/v1/matches/{match_id}/analytics")
 async def get_match_analytics(match_id: str):
-    """Retrieves full computed match analytics (players, rallies, heatmaps, shots)."""
+    """Retrieves full computed match analytics, or live partial streaming analytics if in-progress."""
     analytics = get_analytics_result(match_id)
-    if not analytics:
-        raise HTTPException(
-            status_code=404,
-            detail="Analytics not found. Match may still be processing or failed.",
-        )
-    return analytics
+    if analytics:
+        return analytics
+
+    # Return live partial analytics if available while still processing
+    partial = get_partial_analytics(match_id)
+    if partial:
+        return partial
+
+    raise HTTPException(
+        status_code=404,
+        detail="Analytics not found. Match may still be processing or failed.",
+    )
 
 
 @app.get("/api/v1/matches/{match_id}/rallies")

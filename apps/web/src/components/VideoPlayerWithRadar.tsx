@@ -22,17 +22,19 @@ import {
   Sliders,
   Move,
 } from "lucide-react";
-import { MatchAnalytics, FrameRecord, API_BASE_URL, updatePlayerNames } from "../lib/api";
+import { MatchAnalytics, FrameRecord, ProcessingStatus, API_BASE_URL, updatePlayerNames } from "../lib/api";
 import { RadarCanvas } from "./RadarCanvas";
 
 interface VideoPlayerWithRadarProps {
   analytics: MatchAnalytics;
   selectedRallyTime?: number | null;
+  processingStatus?: ProcessingStatus | null;
 }
 
 export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   analytics,
   selectedRallyTime,
+  processingStatus,
 }) => {
   const [viewMode, setViewMode] = useState<"dual" | "single">("dual");
   const [showOverlays, setShowOverlays] = useState(true);
@@ -371,6 +373,14 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
         </div>
 
         <div className="flex items-center flex-wrap gap-2">
+          {/* Live AI Streaming Indicator */}
+          {processingStatus && processingStatus.status === "processing" && (
+            <div className="flex items-center space-x-2 bg-gradient-to-r from-cyan-950/90 to-blue-950/90 border border-cyan-500/60 backdrop-blur-md px-3.5 py-1.5 rounded-xl text-xs font-bold text-cyan-300 shadow-xl animate-pulse">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-md shadow-cyan-400 animate-ping" />
+              <span>⚡ Live Stream AI: {processingStatus.progress_percentage}% ({frameRecords.length} frames)</span>
+            </div>
+          )}
+
           {/* Edit Athlete Names Button */}
           <button
             onClick={() => {

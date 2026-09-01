@@ -16,9 +16,20 @@ RESULTS_DIR = os.path.join(STORAGE_DIR, "results")
 os.makedirs(MATCHES_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-# In-memory registry for jobs and metadata
+# In-memory registry for jobs, metadata, and live streaming frames
 _JOB_REGISTRY: Dict[str, Dict[str, Any]] = {}
 _MATCH_REGISTRY: Dict[str, Dict[str, Any]] = {}
+_PARTIAL_ANALYTICS: Dict[str, Dict[str, Any]] = {}
+
+
+def save_partial_analytics(match_id: str, data: Dict[str, Any]):
+    """Caches live partial frame records and metadata for real-time streaming."""
+    _PARTIAL_ANALYTICS[match_id] = data
+
+
+def get_partial_analytics(match_id: str) -> Optional[Dict[str, Any]]:
+    """Returns live partial analytics while worker is processing."""
+    return _PARTIAL_ANALYTICS.get(match_id)
 
 
 def save_uploaded_video(match_id: str, filename: str, content: bytes) -> str:

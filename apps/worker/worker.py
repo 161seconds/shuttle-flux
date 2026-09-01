@@ -20,7 +20,12 @@ from pipelines.detect import DetectionPipeline
 from pipelines.track import TrackingPipeline
 from pipelines.analyze import run_full_analytics
 from pipelines.render import render_annotated_frame, render_2d_radar_court
-from apps.api.storage import update_job_status, save_analytics_result, is_job_cancelled
+from apps.api.storage import (
+    update_job_status,
+    save_analytics_result,
+    save_partial_analytics,
+    is_job_cancelled,
+)
 from ml.ocr.scoreboard_reader import ScoreboardReader
 from ml.court_keypoints.detector import CourtKeypointDetector
 
@@ -185,9 +190,29 @@ def process_video_pipeline(match_id: str, video_path: str):
             )
 
             frame_count += 1
-            if total_frames > 0 and frame_count % 15 == 0:
-                current_pct = min(80, int(50 + (frame_idx / total_frames) * 30))
+            if frame_count % 8 == 0:
+                current_pct = min(88, int(40 + (frame_idx / max(total_frames, 1)) * 45))
                 update_job_status(match_id, status="processing", progress=current_pct, stage="detection_and_tracking")
+                # Save partial analytics for instant live streaming
+                save_partial_analytics(
+                    match_id,
+                    {
+                        "metadata": {
+                            **metadata,
+                            "match_id": match_id,
+                            "fps": round(fps, 2),
+                            "total_frames": total_frames,
+                            "duration_seconds": round(timestamp, 2),
+                            "mode": "Đơn (Singles 1v1)",
+                        },
+                        "court_nodes": detected_court_nodes,
+                        "frame_records": list(frame_records),
+                        "players": {
+                            "player_1": {"player_id": 1, "label": extracted_names.get("player_1_name", "VĐV 1 (Gần)")},
+                            "player_2": {"player_id": 2, "label": extracted_names.get("player_2_name", "VĐV 2 (Xa)")},
+                        },
+                    },
+                )
 
         # Auto-detect match format (Singles 1v1 vs Doubles 2v2)
         is_doubles = tracker.player_tracker.is_doubles_mode or any(
