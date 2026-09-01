@@ -73,12 +73,42 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
   };
 
   const stages = [
-    { key: "downloading_youtube", label: "Downloading YouTube Video Stream" },
-    { key: "preprocessing", label: "Video Ingestion & Frame Normalization" },
-    { key: "court_calibration", label: "Court Landmarks & Homography Calibration" },
-    { key: "detection_and_tracking", label: "Player & Shuttlecock AI Tracking" },
-    { key: "analytics", label: "Movement & Rally Analytics Computation" },
-    { key: "completed", label: "Rendering & Dashboard Ready" },
+    {
+      key: "downloading_youtube",
+      label: "Downloading YouTube Video Stream",
+      desc: "Fetching video & audio stream via yt-dlp",
+      range: [0, 20],
+    },
+    {
+      key: "preprocessing",
+      label: "Video Ingestion & Frame Normalization",
+      desc: "Extracting video metadata & verifying resolution",
+      range: [20, 35],
+    },
+    {
+      key: "court_calibration",
+      label: "Court Landmarks & Homography Calibration",
+      desc: "Perspective transformation & 2D coordinate mapping",
+      range: [35, 50],
+    },
+    {
+      key: "detection_and_tracking",
+      label: "Player & Shuttlecock AI Tracking",
+      desc: "YOLO detection & ByteTrack temporal association",
+      range: [50, 80],
+    },
+    {
+      key: "analytics",
+      label: "Movement & Rally Analytics Computation",
+      desc: "Calculating velocities, court heatmaps, and rallies",
+      range: [80, 95],
+    },
+    {
+      key: "completed",
+      label: "Rendering & Dashboard Ready",
+      desc: "Compiling player stats & match intelligence",
+      range: [95, 100],
+    },
   ];
 
   return (
@@ -242,7 +272,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
             </div>
           </div>
 
-          {/* Progress Bar */}
+          {/* Overall Progress Bar */}
           <div className="w-full h-3 bg-surface-light rounded-full overflow-hidden mb-6 p-0.5 border border-gray-700">
             <div
               className="h-full bg-gradient-to-r from-brand-cyan via-cyan-400 to-brand-amber rounded-full transition-all duration-500 shadow-lg shadow-cyan-500/50"
@@ -250,36 +280,89 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
             ></div>
           </div>
 
-          {/* Stage items */}
+          {/* Individual Stage items with sub-progress bars */}
           <div className="space-y-3 pt-2">
-            {stages.map((st, idx) => {
+            {stages.map((st) => {
+              const [startRange, endRange] = st.range;
+              const overallPct = processingStatus.progress_percentage;
+
               const isCurrent = processingStatus.current_stage === st.key;
               const isPast =
                 processingStatus.status === "completed" ||
-                processingStatus.progress_percentage >= (idx + 1) * (100 / stages.length);
+                overallPct >= endRange ||
+                (!isCurrent && overallPct > startRange);
+
+              let stagePct = 0;
+              if (isPast) {
+                stagePct = 100;
+              } else if (isCurrent) {
+                const span = endRange - startRange;
+                const normalized = span > 0 ? ((overallPct - startRange) / span) * 100 : 50;
+                stagePct = Math.min(99, Math.max(12, Math.round(normalized)));
+              } else {
+                stagePct = 0;
+              }
 
               return (
                 <div
                   key={st.key}
-                  className={`flex items-center justify-between text-sm p-2.5 rounded-lg transition-colors ${
+                  className={`p-3.5 rounded-xl border transition-all duration-200 ${
                     isCurrent
-                      ? "bg-cyan-950/40 text-cyan-300 border border-cyan-800/60"
+                      ? "bg-cyan-950/40 border-cyan-500/50 shadow-lg shadow-cyan-950/40"
                       : isPast
-                      ? "text-gray-300"
-                      : "text-gray-600"
+                      ? "bg-surface/50 border-gray-800/80"
+                      : "bg-surface/20 border-gray-800/30 opacity-60"
                   }`}
                 >
-                  <div className="flex items-center space-x-3">
-                    {isPast ? (
-                      <CheckCircle2 className="w-4 h-4 text-brand-green" />
-                    ) : isCurrent ? (
-                      <Loader2 className="w-4 h-4 text-brand-cyan animate-spin" />
-                    ) : (
-                      <div className="w-4 h-4 rounded-full border border-gray-700"></div>
-                    )}
-                    <span>{st.label}</span>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-3">
+                      {isPast ? (
+                        <CheckCircle2 className="w-4 h-4 text-brand-green flex-shrink-0" />
+                      ) : isCurrent ? (
+                        <Loader2 className="w-4 h-4 text-brand-cyan animate-spin flex-shrink-0" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border border-gray-700 flex-shrink-0" />
+                      )}
+                      <div>
+                        <span
+                          className={`text-xs font-semibold ${
+                            isCurrent ? "text-cyan-200" : isPast ? "text-gray-200" : "text-gray-400"
+                          }`}
+                        >
+                          {st.label}
+                        </span>
+                        <p className="text-[11px] text-gray-500">{st.desc}</p>
+                      </div>
+                    </div>
+
+                    <div className="text-right flex items-center space-x-2">
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                          isPast
+                            ? "bg-emerald-950/60 text-emerald-300 border border-emerald-800/60"
+                            : isCurrent
+                            ? "bg-cyan-950 text-cyan-300 border border-cyan-700 animate-pulse"
+                            : "bg-gray-900/60 text-gray-500 border border-gray-800"
+                        }`}
+                      >
+                        {isPast ? "100%" : isCurrent ? `${stagePct}%` : "0%"}
+                      </span>
+                    </div>
                   </div>
-                  {isCurrent && <span className="text-xs font-semibold uppercase tracking-wider">In Progress</span>}
+
+                  {/* Individual Mini Progress Bar for each Stage */}
+                  <div className="w-full h-1.5 bg-gray-900/90 rounded-full overflow-hidden border border-gray-800/80">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${
+                        isPast
+                          ? "bg-emerald-500"
+                          : isCurrent
+                          ? "bg-gradient-to-r from-brand-cyan via-cyan-400 to-brand-amber shadow-sm shadow-cyan-500/50"
+                          : "bg-transparent"
+                      }`}
+                      style={{ width: `${stagePct}%` }}
+                    />
+                  </div>
                 </div>
               );
             })}

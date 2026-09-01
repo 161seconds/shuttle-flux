@@ -37,7 +37,7 @@ def process_video_pipeline(match_id: str, video_path: str):
         if is_job_cancelled(match_id):
             return
 
-        update_job_status(match_id, status="processing", progress=5, stage="preprocessing")
+        update_job_status(match_id, status="processing", progress=22, stage="preprocessing")
 
         # Step 1: Preprocessing
         metadata = extract_video_metadata(video_path)
@@ -48,7 +48,7 @@ def process_video_pipeline(match_id: str, video_path: str):
             return
 
         # Step 2: Court Calibration
-        update_job_status(match_id, status="processing", progress=15, stage="court_calibration")
+        update_job_status(match_id, status="processing", progress=38, stage="court_calibration")
         calibrator = CourtCalibrator(is_doubles=False)
         # Use initial court corners
         calibrator.calibrate_standard_corners(
@@ -62,7 +62,7 @@ def process_video_pipeline(match_id: str, video_path: str):
             return
 
         # Step 3: Detection & Tracking
-        update_job_status(match_id, status="processing", progress=30, stage="detection_and_tracking")
+        update_job_status(match_id, status="processing", progress=50, stage="detection_and_tracking")
         detector = DetectionPipeline()
         tracker = TrackingPipeline()
 
@@ -117,18 +117,20 @@ def process_video_pipeline(match_id: str, video_path: str):
             )
 
             frame_count += 1
-            if total_frames > 0 and frame_count % 30 == 0:
-                current_pct = min(85, int(30 + (frame_count / total_frames) * 55))
-                update_job_status(match_id, status="processing", progress=current_pct, stage="tracking")
+            if total_frames > 0 and frame_count % 15 == 0:
+                current_pct = min(80, int(50 + (frame_count / total_frames) * 30))
+                update_job_status(match_id, status="processing", progress=current_pct, stage="detection_and_tracking")
 
         # Step 5: Analytics Calculation
-        update_job_status(match_id, status="processing", progress=90, stage="analytics")
+        update_job_status(match_id, status="processing", progress=85, stage="analytics")
         analytics_result = run_full_analytics(
             frame_records=frame_records,
             fps=fps,
             match_metadata={"match_id": match_id, "video_metadata": metadata},
             is_doubles=False,
         )
+
+        update_job_status(match_id, status="processing", progress=95, stage="completed")
 
         # Attach raw frame samples for frontend Radar visualization
         analytics_result["frame_records"] = frame_records[::2]  # sample every 2 frames for compact UI sync

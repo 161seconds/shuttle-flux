@@ -58,10 +58,26 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
         update_job_status(
             match_id=match_id,
             status="processing",
-            progress=5,
+            progress=3,
             stage="downloading_youtube",
         )
         import yt_dlp
+
+        def yt_progress_hook(d):
+            if is_job_cancelled(match_id):
+                raise Exception("Download cancelled by user")
+            if d.get("status") == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                downloaded = d.get("downloaded_bytes") or 0
+                if total > 0:
+                    fraction = min(1.0, downloaded / total)
+                    pct = int(3 + fraction * 17)  # maps smoothly from 3% to 20%
+                    update_job_status(
+                        match_id=match_id,
+                        status="processing",
+                        progress=pct,
+                        stage="downloading_youtube",
+                    )
 
         ydl_opts = {
             "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
@@ -69,6 +85,7 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
             "quiet": False,
             "no_warnings": True,
             "overwrites": True,
+            "progress_hooks": [yt_progress_hook],
         }
 
         # Automatically locate pre-bundled FFmpeg binary from imageio-ffmpeg
