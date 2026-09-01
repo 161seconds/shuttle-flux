@@ -81,14 +81,25 @@ def process_video_pipeline(match_id: str, video_path: str):
             tracked = tracker.update(raw_dets, frame_idx, timestamp)
 
             # Step 4: Transform to 2D court coordinates
+            h, w, _ = frame.shape
             transformed_players = []
             for p in tracked.get("players", []):
-                bc = p.get("bottom_center", [500, 500])
+                bc = p.get("bottom_center", [w / 2.0, h / 2.0])
                 pt_arr = np.array([[bc[0], bc[1]]], dtype=np.float32)
                 court_pt = calibrator.transform_image_to_court(pt_arr)
                 p_copy = dict(p)
                 p_copy["x_norm"] = round(float(court_pt[0, 0]), 4)
                 p_copy["y_norm"] = round(float(court_pt[0, 1]), 4)
+
+                # Normalized bounding box coordinates for exact video overlay
+                bbox = p.get("bbox", [0, 0, 0, 0])
+                if w > 0 and h > 0 and len(bbox) == 4:
+                    p_copy["bbox_norm"] = [
+                        round(float(bbox[0] / w), 4),
+                        round(float(bbox[1] / h), 4),
+                        round(float(bbox[2] / w), 4),
+                        round(float(bbox[3] / h), 4),
+                    ]
                 transformed_players.append(p_copy)
 
             # Shuttle coordinates (simulate realistic trajectory if none detected)
@@ -102,10 +113,14 @@ def process_video_pipeline(match_id: str, video_path: str):
                     "timestamp": timestamp,
                     "x_norm": round(float(sim_x), 4),
                     "y_norm": round(float(sim_y), 4),
+                    "center_norm": [round(float(sim_x), 4), round(float(sim_y), 4)],
                     "visible": True,
                     "confidence": 0.85,
                     "speed_norm": 0.3,
                 }
+            elif "center" in shuttle and w > 0 and h > 0:
+                cx, cy = shuttle["center"]
+                shuttle["center_norm"] = [round(float(cx / w), 4), round(float(cy / h), 4)]
 
             frame_records.append(
                 {

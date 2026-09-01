@@ -238,22 +238,36 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                   {/* Player Bounding Box Overlay */}
                   <div className="absolute inset-0">
                     {currentFrame.players.map((p) => {
-                      const top = p.player_id === 1 ? "64%" : "24%";
-                      const left = `${p.x_norm * 80 + 10}%`;
+                      let left = `${p.x_norm * 80 + 10}%`;
+                      let top = p.player_id === 1 ? "64%" : "24%";
+                      let width = "3.5rem";
+                      let height = "6rem";
+
+                      if (p.bbox_norm && p.bbox_norm.length === 4) {
+                        const [bx1, by1, bx2, by2] = p.bbox_norm;
+                        left = `${Math.max(0, Math.min(95, bx1 * 100))}%`;
+                        top = `${Math.max(0, Math.min(90, by1 * 100))}%`;
+                        width = `${Math.max(4, Math.min(40, (bx2 - bx1) * 100))}%`;
+                        height = `${Math.max(6, Math.min(60, (by2 - by1) * 100))}%`;
+                      }
+
                       const color =
                         p.player_id === 1
                           ? "border-brand-cyan text-brand-cyan shadow-cyan-500/40"
                           : "border-brand-amber text-brand-amber shadow-amber-500/40";
 
+                      const confText = p.confidence ? `${Math.round(p.confidence * 100)}%` : "AI";
+
                       return (
                         <div
                           key={p.player_id}
-                          className={`absolute w-14 h-24 border-2 ${color} rounded-lg transition-all duration-75 flex flex-col justify-between p-1 bg-black/40 backdrop-blur-[2px] shadow-lg`}
-                          style={{ top, left }}
+                          className={`absolute border-2 ${color} rounded-lg transition-all duration-75 flex flex-col justify-between p-1 bg-black/30 backdrop-blur-[1px] shadow-lg`}
+                          style={{ top, left, width, height }}
                         >
-                          <span className="text-[9px] font-black bg-black/90 px-1 py-0.5 rounded text-white w-fit">
-                            P{p.player_id}
-                          </span>
+                          <div className="flex items-center space-x-1 bg-black/90 px-1 py-0.5 rounded text-white w-fit">
+                            <span className="text-[9px] font-black">P{p.player_id}</span>
+                            <span className="text-[8px] opacity-75">{confText}</span>
+                          </div>
                           <div className="w-2 h-2 rounded-full bg-white mx-auto shadow-sm shadow-white"></div>
                         </div>
                       );
@@ -262,10 +276,18 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                     {/* Shuttlecock Overlay */}
                     {currentFrame.shuttle && currentFrame.shuttle.visible && (
                       <div
-                        className="absolute w-3.5 h-3.5 rounded-full bg-amber-300 border-2 border-white shadow-lg shadow-yellow-400 transition-all duration-75"
+                        className="absolute w-3.5 h-3.5 rounded-full bg-amber-300 border-2 border-white shadow-lg shadow-yellow-400 transition-all duration-75 z-20"
                         style={{
-                          top: `${currentFrame.shuttle.y_norm * 75 + 12}%`,
-                          left: `${currentFrame.shuttle.x_norm * 78 + 11}%`,
+                          top: `${
+                            currentFrame.shuttle.center_norm
+                              ? currentFrame.shuttle.center_norm[1] * 100
+                              : currentFrame.shuttle.y_norm * 75 + 12
+                          }%`,
+                          left: `${
+                            currentFrame.shuttle.center_norm
+                              ? currentFrame.shuttle.center_norm[0] * 100
+                              : currentFrame.shuttle.x_norm * 78 + 11
+                          }%`,
                         }}
                       ></div>
                     )}

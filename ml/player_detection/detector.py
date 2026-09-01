@@ -9,17 +9,18 @@ import numpy as np
 
 
 class PlayerDetector:
-    def __init__(self, model_path: Optional[str] = None, conf_threshold: float = 0.40):
+    def __init__(self, model_path: Optional[str] = None, conf_threshold: float = 0.35):
         self.conf_threshold = conf_threshold
         self.model = None
 
-        if model_path:
-            try:
-                from ultralytics import YOLO
+        target_model = model_path or "yolov8n.pt"
+        try:
+            from ultralytics import YOLO
 
-                self.model = YOLO(model_path)
-            except Exception as e:
-                print(f"[PlayerDetector] Failed to load YOLO model from {model_path}: {e}")
+            self.model = YOLO(target_model)
+            print(f"[PlayerDetector] Successfully loaded YOLO model: {target_model}")
+        except Exception as e:
+            print(f"[PlayerDetector] Failed to load YOLO model from {target_model}: {e}")
 
     def detect(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         """
