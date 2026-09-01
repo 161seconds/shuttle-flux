@@ -5,6 +5,7 @@ Implements:
 1. Physical jump-distance outlier rejection (ignores false positive teleportations)
 2. Exponential Moving Average (EMA) coordinate dampening (eliminates micro-jitter)
 3. Smooth ballistic velocity extrapolation during fast motion blur / occlusions.
+4. Trajectory matching: Picks the best detection candidate that fits the flight path.
 """
 
 from typing import Dict, Any, Optional, List
@@ -31,21 +32,50 @@ class ShuttleTrajectoryTracker:
     ) -> Dict[str, Any]:
         """
         Updates shuttle trajectory with physical velocity gating and EMA smoothing.
+        If multiple candidates are provided, picks the one closest to predicted flight path.
         """
-        raw_valid = detection is not None and detection.get("visible", False) and "center" in detection
+        raw_valid = detection is not None and detection.get("visible", False) and "candidates" in detection
 
+        best_candidate = None
         if raw_valid:
-            curr_center = detection["center"]
-            cx, cy = float(curr_center[0]), float(curr_center[1])
+            candidates = detection["candidates"]
+            if not candidates:
+                # Fallback to single center if candidates is empty but visible is true
+                if "center" in detection:
+                    candidates = [detection]
+                else:
+                    raw_valid = False
+
+            if raw_valid:
+                if self.state != "LOST" and self.last_valid_pos is not None:
+                    # Predict next position based on velocity and momentum (drag)
+                    drag = 0.85
+                    predicted_cx = self.last_valid_pos[0] + self.velocity[0] * drag
+                    predicted_cy = self.last_valid_pos[1] + self.velocity[1] * drag
+                    
+                    # Find candidate closest to predicted position
+                    best_dist = float('inf')
+                    for cand in candidates:
+                        cx, cy = cand["center"]
+                        dist = np.hypot(cx - predicted_cx, cy - predicted_cy)
+                        # Maximum allowed jump distance for a candidate (e.g. 300 pixels)
+                        if dist < 300 and dist < best_dist:
+                            best_dist = dist
+                            best_candidate = cand
+                else:
+                    # If LOST, just take the candidate with the highest visual score (first one)
+                    best_candidate = candidates[0]
+
+        if best_candidate is not None:
+            cx, cy = float(best_candidate["center"][0]), float(best_candidate["center"][1])
 
             # 1. Physical Jump-Distance Gate: Reject sudden teleportations across the screen
             if self.last_valid_pos is not None and self.missing_count <= 3:
                 prev_cx, prev_cy = self.last_valid_pos
                 dist_jump = np.hypot(cx - prev_cx, cy - prev_cy)
                 
-                # If jump exceeds 220 pixels in 1 frame (~20% of 1080p), check if it's an outlier
-                if dist_jump > 220:
-                    # Treat as outlier noise artifact; extrapolate instead of jumping
+                # If jump exceeds 300 pixels in 1 frame (~30% of 1080p), treat as outlier noise
+                if dist_jump > 300:
                     return self._handle_missing_extrapolation(frame_idx, timestamp)
 
             # 2. Smooth Position via Exponential Moving Average (EMA)
@@ -61,17 +91,18 @@ class ShuttleTrajectoryTracker:
                 self.last_valid_pos = [smoothed_cx, smoothed_cy]
             else:
                 self.last_valid_pos = [cx, cy]
-                self.velocity = [0.0, 0.0]
+                if self.missing_count > 0:
+                    self.velocity = [0.0, 0.0]
 
             self.state = "DETECTED"
             self.missing_count = 0
 
-            curr_point = dict(detection)
+            curr_point = dict(best_candidate)
             curr_point["frame_idx"] = frame_idx
             curr_point["timestamp"] = timestamp
             curr_point["center"] = [round(self.last_valid_pos[0], 1), round(self.last_valid_pos[1], 1)]
             curr_point["visible"] = True
-            curr_point["confidence"] = detection.get("confidence", 0.90)
+            curr_point["confidence"] = best_candidate.get("confidence", 0.90)
 
             self.trajectory_history.append(curr_point)
             return curr_point
@@ -82,10 +113,10 @@ class ShuttleTrajectoryTracker:
     def _handle_missing_extrapolation(self, frame_idx: int, timestamp: float) -> Dict[str, Any]:
         self.missing_count += 1
         
-        # Extrapolate smoothly for up to 3 frames with aerodynamic air drag
-        if self.missing_count <= 3 and self.last_valid_pos is not None:
+        # Extrapolate smoothly for up to 4 frames with aerodynamic air drag
+        if self.missing_count <= 4 and self.last_valid_pos is not None:
             self.state = "TEMPORARILY_MISSING"
-            drag = 0.82 ** self.missing_count
+            drag = 0.85 ** self.missing_count
             extrap_cx = self.last_valid_pos[0] + self.velocity[0] * drag
             extrap_cy = self.last_valid_pos[1] + self.velocity[1] * drag
             self.last_valid_pos = [extrap_cx, extrap_cy]
