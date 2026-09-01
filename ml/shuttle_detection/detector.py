@@ -2,10 +2,10 @@
 Shuttlecock Detection Module:
 High-speed Computer Vision detector for badminton shuttlecock tracking.
 Combines temporal frame differencing, adaptive HSV brightness filtering,
-and compact morphological blob analysis.
+and player body exclusion.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import numpy as np
 
 try:
@@ -29,9 +29,14 @@ class ShuttleDetector:
             except Exception as e:
                 print(f"[ShuttleDetector] Failed to load model {model_path}: {e}")
 
-    def detect(self, frame: np.ndarray) -> Dict[str, Any]:
+    def detect(
+        self,
+        frame: np.ndarray,
+        player_boxes: Optional[List[List[float]]] = None,
+    ) -> Dict[str, Any]:
         """
         Detects real white shuttlecock in frame.
+        Excludes white shirts/shorts inside player bounding boxes.
         Returns: Dict with 'center': [cx, cy], 'bbox': [x1, y1, x2, y2], 'confidence': float, 'visible': bool
         """
         h, w, _ = frame.shape
@@ -60,26 +65,26 @@ class ShuttleDetector:
         # Method 2: Temporal Motion Differencing + Adaptive White HSV Blob Detection
         if HAS_OPENCV:
             try:
-                # Shuttlecock travels in the playing airspace: 0.06 * h < y < 0.88 * h
-                roi_y1 = int(h * 0.06)
-                roi_y2 = int(h * 0.88)
-                roi_x1 = int(w * 0.08)
-                roi_x2 = int(w * 0.92)
+                # Shuttlecock travels in the playing airspace: 0.08 * h < y < 0.85 * h
+                roi_y1 = int(h * 0.08)
+                roi_y2 = int(h * 0.85)
+                roi_x1 = int(w * 0.12)
+                roi_x2 = int(w * 0.88)
 
                 roi = frame[roi_y1:roi_y2, roi_x1:roi_x2]
                 hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
                 gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
                 # Bright white filter (forgiving range for motion blur / indoor lighting)
-                lower_white = np.array([0, 0, 185], dtype=np.uint8)
-                upper_white = np.array([180, 100, 255], dtype=np.uint8)
+                lower_white = np.array([0, 0, 195], dtype=np.uint8)
+                upper_white = np.array([180, 85, 255], dtype=np.uint8)
                 white_mask = cv2.inRange(hsv, lower_white, upper_white)
 
                 # Motion differencing mask
                 target_mask = white_mask
                 if self.prev_roi_gray is not None and self.prev_roi_gray.shape == gray.shape:
                     diff = cv2.absdiff(gray, self.prev_roi_gray)
-                    _, diff_mask = cv2.threshold(diff, 16, 255, cv2.THRESH_BINARY)
+                    _, diff_mask = cv2.threshold(diff, 18, 255, cv2.THRESH_BINARY)
                     # Motion combined with white color
                     motion_white = cv2.bitwise_and(white_mask, diff_mask)
                     if cv2.countNonZero(motion_white) >= 4:
@@ -98,14 +103,24 @@ class ShuttleDetector:
 
                 for cnt in contours:
                     area = cv2.contourArea(cnt)
-                    # Shuttlecock size in typical broadcast 720p/1080p is between 4 and 260 pixels
-                    if 4 <= area <= 280:
+                    # Shuttlecock size in typical broadcast 720p/1080p is between 4 and 220 pixels
+                    if 4 <= area <= 220:
                         bx, by, bw, bh = cv2.boundingRect(cnt)
                         aspect_ratio = float(bw) / max(1, bh)
                         # Compact / flight streak shape
                         if 0.30 <= aspect_ratio <= 3.0:
                             cx = roi_x1 + bx + bw / 2.0
                             cy = roi_y1 + by + bh / 2.0
+
+                            # Exclude if candidate is inside any player's bounding box (e.g. white shorts/shirt)
+                            if player_boxes:
+                                in_player = False
+                                for pbox in player_boxes:
+                                    if len(pbox) == 4 and (pbox[0] - 5 <= cx <= pbox[2] + 5) and (pbox[1] - 5 <= cy <= pbox[3] + 5):
+                                        in_player = True
+                                        break
+                                if in_player:
+                                    continue
 
                             # Score candidate by intensity and compactness
                             score = float(area) / (1.0 + abs(aspect_ratio - 1.0) * 0.5)
@@ -126,7 +141,7 @@ class ShuttleDetector:
                         "confidence": 0.88,
                         "visible": True,
                     }
-            except Exception as e:
+            except Exception:
                 pass
 
         # If not detected in this frame

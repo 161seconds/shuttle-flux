@@ -446,21 +446,21 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                   viewBox="0 0 100 100"
                   preserveAspectRatio="none"
                 >
-                  {/* Outer Court Perspective Perimeter Polygon */}
+                  {/* Outer Court Perspective Perimeter Polygon (On Green Mat) */}
                   <polygon
-                    points="32,28 68,28 88,92 12,92"
-                    fill="rgba(16, 185, 129, 0.04)"
-                    stroke="rgba(16, 185, 129, 0.65)"
-                    strokeWidth="0.75"
+                    points="35,52 65,52 82,90 18,90"
+                    fill="rgba(16, 185, 129, 0.05)"
+                    stroke="rgba(16, 185, 129, 0.85)"
+                    strokeWidth="0.8"
                     strokeLinejoin="round"
                   />
 
-                  {/* Net Line (Cyan Glow) */}
+                  {/* Net Line (Cyan Neon Dashed) */}
                   <line
-                    x1="22"
-                    y1="56"
-                    x2="78"
-                    y2="56"
+                    x1="29"
+                    y1="62"
+                    x2="71"
+                    y2="62"
                     stroke="#00e5ff"
                     strokeWidth="1.2"
                     strokeDasharray="1.5, 1"
@@ -468,50 +468,50 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
 
                   {/* Far Short Service Line */}
                   <line
-                    x1="26"
-                    y1="41"
-                    x2="74"
-                    y2="41"
-                    stroke="rgba(16, 185, 129, 0.45)"
+                    x1="33"
+                    y1="56"
+                    x2="67"
+                    y2="56"
+                    stroke="rgba(16, 185, 129, 0.6)"
                     strokeWidth="0.6"
                   />
 
                   {/* Near Short Service Line */}
                   <line
-                    x1="18"
-                    y1="72"
-                    x2="82"
-                    y2="72"
-                    stroke="rgba(16, 185, 129, 0.45)"
+                    x1="24"
+                    y1="75"
+                    x2="76"
+                    y2="75"
+                    stroke="rgba(16, 185, 129, 0.6)"
                     strokeWidth="0.6"
                   />
 
                   {/* Center Longitudinal Line */}
                   <line
                     x1="50"
-                    y1="28"
+                    y1="52"
                     x2="50"
-                    y2="41"
-                    stroke="rgba(16, 185, 129, 0.4)"
+                    y2="56"
+                    stroke="rgba(16, 185, 129, 0.5)"
                     strokeWidth="0.5"
                   />
                   <line
                     x1="50"
-                    y1="72"
+                    y1="75"
                     x2="50"
-                    y2="92"
-                    stroke="rgba(16, 185, 129, 0.4)"
+                    y2="90"
+                    stroke="rgba(16, 185, 129, 0.5)"
                     strokeWidth="0.5"
                   />
 
-                  {/* Court Corner Landmark Nodes (Glowing Points) */}
+                  {/* Court Corner Landmark Nodes (Glowing Points on Floor) */}
                   {[
-                    { cx: 32, cy: 28, label: "P_TL" },
-                    { cx: 68, cy: 28, label: "P_TR" },
-                    { cx: 88, cy: 92, label: "P_BR" },
-                    { cx: 12, cy: 92, label: "P_BL" },
-                    { cx: 22, cy: 56, label: "Net_L" },
-                    { cx: 78, cy: 56, label: "Net_R" },
+                    { cx: 35, cy: 52, label: "P_TL" },
+                    { cx: 65, cy: 52, label: "P_TR" },
+                    { cx: 82, cy: 90, label: "P_BR" },
+                    { cx: 18, cy: 90, label: "P_BL" },
+                    { cx: 29, cy: 62, label: "Net_L" },
+                    { cx: 71, cy: 62, label: "Net_R" },
                   ].map((node) => (
                     <g key={node.label}>
                       <circle cx={node.cx} cy={node.cy} r="1.2" fill="#10b981" />
@@ -522,7 +522,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                         fill="none"
                         stroke="#00e5ff"
                         strokeWidth="0.4"
-                        opacity="0.8"
+                        opacity="0.9"
                       />
                     </g>
                   ))}

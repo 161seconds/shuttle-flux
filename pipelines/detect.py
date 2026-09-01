@@ -28,7 +28,8 @@ class DetectionPipeline:
     def run_frame(self, frame: np.ndarray) -> Dict[str, Any]:
         """Runs player and shuttle detection on frame."""
         players = self.player_detector.detect(frame)
-        shuttle = self.shuttle_detector.detect(frame)
+        player_boxes = [p["bbox"] for p in players if "bbox" in p]
+        shuttle = self.shuttle_detector.detect(frame, player_boxes=player_boxes)
 
         return {
             "players": players,

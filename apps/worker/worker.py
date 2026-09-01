@@ -53,12 +53,12 @@ def process_video_pipeline(match_id: str, video_path: str):
         calibrator = CourtCalibrator(is_doubles=False)
         vid_w = float(metadata.get("width", 1280))
         vid_h = float(metadata.get("height", 720))
-        # Use dynamic court corner calibration scaled to video aspect ratio
+        # Use accurate BWF broadcast court corner calibration
         calibrator.calibrate_standard_corners(
-            bottom_left_px=(vid_w * 0.12, vid_h * 0.92),
-            bottom_right_px=(vid_w * 0.88, vid_h * 0.92),
-            top_left_px=(vid_w * 0.32, vid_h * 0.28),
-            top_right_px=(vid_w * 0.68, vid_h * 0.28),
+            bottom_left_px=(vid_w * 0.18, vid_h * 0.90),
+            bottom_right_px=(vid_w * 0.82, vid_h * 0.90),
+            top_left_px=(vid_w * 0.35, vid_h * 0.52),
+            top_right_px=(vid_w * 0.65, vid_h * 0.52),
         )
 
         if is_job_cancelled(match_id):

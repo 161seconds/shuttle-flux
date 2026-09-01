@@ -5,7 +5,6 @@ with smooth bounding box temporal interpolation and zero ID flipping.
 """
 
 from typing import List, Dict, Any, Optional
-import numpy as np
 
 
 class PlayerTracker:
@@ -16,7 +15,7 @@ class PlayerTracker:
         self.p2_track: Optional[Dict[str, Any]] = None
         self.p1_missing = 0
         self.p2_missing = 0
-        self.max_hold_frames = 12
+        self.max_hold_frames = 15
 
     def update(self, detections: List[Dict[str, Any]], frame_idx: int) -> List[Dict[str, Any]]:
         """
@@ -29,18 +28,20 @@ class PlayerTracker:
         for d in detections:
             role = d.get("role")
             if role == "near":
-                near_det = d
+                if near_det is None or d["confidence"] > near_det["confidence"]:
+                    near_det = d
             elif role == "far":
-                far_det = d
-            else:
-                # Fallback role determination based on Y position
-                cy = d["bottom_center"][1]
-                if cy > 400:  # or based on mid-frame
-                    if near_det is None or d["confidence"] > near_det["confidence"]:
-                        near_det = d
+                if far_det is None or d["confidence"] > far_det["confidence"]:
+                    far_det = d
+
+        # Safety check: ensure near_det and far_det are distinctly separated in Y
+        if near_det is not None and far_det is not None:
+            if abs(near_det["bottom_center"][1] - far_det["bottom_center"][1]) < 30:
+                # If they overlap, keep only the higher confidence one
+                if near_det["confidence"] >= far_det["confidence"]:
+                    far_det = None
                 else:
-                    if far_det is None or d["confidence"] > far_det["confidence"]:
-                        far_det = d
+                    near_det = None
 
         tracked_players = []
 
