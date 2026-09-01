@@ -29,34 +29,48 @@ export default function Home() {
 
   // Poll processing progress & live frame streaming if active
   useEffect(() => {
-    let timer: any = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
     if (activeMatchId && (!processingStatus || processingStatus.status === "processing")) {
       timer = setInterval(async () => {
+        if (cancelled) return;
         try {
           const status = await getProcessingStatus(activeMatchId);
+          if (cancelled) return;
           setProcessingStatus(status);
 
           // Stream live partial analytics as soon as frames are processed
-          try {
-            const liveData = await getMatchAnalytics(activeMatchId);
-            if (liveData && liveData.frame_records && liveData.frame_records.length > 0) {
-              setAnalytics((prev) => {
-                if (!prev) return liveData;
-                return {
-                  ...prev,
-                  ...liveData,
-                  frame_records: liveData.frame_records,
-                };
-              });
+          if (status.status === "processing") {
+            try {
+              const liveData = await getMatchAnalytics(activeMatchId);
+              if (cancelled) return;
+              if (liveData && liveData.frame_records && liveData.frame_records.length > 0) {
+                setAnalytics((prev) => {
+                  if (!prev) return liveData;
+                  return {
+                    ...prev,
+                    ...liveData,
+                    frame_records: liveData.frame_records,
+                  };
+                });
+              }
+            } catch (_) {
+              // Still preparing first batch — ignore 404
             }
-          } catch (_) {
-            // Still preparing first batch
           }
 
           if (status.status === "completed") {
-            const data = await getMatchAnalytics(activeMatchId);
-            setAnalytics(data);
+            // Fetch final analytics and STOP polling
+            cancelled = true;
+            if (timer) clearInterval(timer);
+            try {
+              const data = await getMatchAnalytics(activeMatchId);
+              setAnalytics(data);
+            } catch (_) {}
           } else if (status.status === "failed" || status.status === "cancelled") {
+            cancelled = true;
+            if (timer) clearInterval(timer);
             if (status.status === "failed") {
               alert(`Xử lý video thất bại: ${status.error_message || "Lỗi không xác định"}`);
             }
@@ -66,9 +80,10 @@ export default function Home() {
         } catch (e) {
           console.error("Polling error:", e);
         }
-      }, 1000);
+      }, 2000); // Poll every 2s instead of 1s to reduce server load
     }
     return () => {
+      cancelled = true;
       if (timer) clearInterval(timer);
     };
   }, [activeMatchId, processingStatus?.status]);
