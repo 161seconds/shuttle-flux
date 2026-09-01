@@ -132,3 +132,34 @@ def get_analytics_result(match_id: str) -> Optional[Dict[str, Any]]:
 
 def list_all_matches() -> list:
     return list(_MATCH_REGISTRY.values())
+
+
+def cleanup_storage(keep_latest_n: int = 1) -> Dict[str, Any]:
+    """Deletes cached video files in storage/matches to free up disk space."""
+    freed_bytes = 0
+    deleted_files = []
+    
+    if os.path.exists(MATCHES_DIR):
+        files = [
+            os.path.join(MATCHES_DIR, f)
+            for f in os.listdir(MATCHES_DIR)
+            if os.path.isfile(os.path.join(MATCHES_DIR, f))
+        ]
+        # Sort by modification time (oldest first)
+        files.sort(key=lambda p: os.path.getmtime(p))
+        
+        to_delete = files[:-keep_latest_n] if keep_latest_n > 0 else files
+        for file_path in to_delete:
+            try:
+                size = os.path.getsize(file_path)
+                os.remove(file_path)
+                freed_bytes += size
+                deleted_files.append(os.path.basename(file_path))
+            except Exception as e:
+                print(f"[Cleanup Warning] Failed to delete {file_path}: {e}")
+                
+    return {
+        "freed_mb": round(freed_bytes / (1024 * 1024), 2),
+        "deleted_count": len(deleted_files),
+        "deleted_files": deleted_files,
+    }
