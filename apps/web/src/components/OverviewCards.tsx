@@ -7,21 +7,40 @@ interface OverviewCardsProps {
 }
 
 export const OverviewCards: React.FC<OverviewCardsProps> = ({ analytics }) => {
-  const { overview, metadata, players } = analytics;
+  const overview = analytics.overview || {
+    active_play_duration_sec: 0,
+    total_rallies: 0,
+    total_shots: 0,
+    total_distance_player_1_m: 0,
+    total_distance_player_2_m: 0,
+  };
+  const metadata = analytics.metadata || {
+    duration_seconds: 0,
+    fps: 30,
+    total_frames: 0,
+    match_id: "",
+  };
+  const players = analytics.players || {};
+
+  const activePlayTime = overview.active_play_duration_sec ?? 0;
+  const totalDuration = metadata.duration_seconds ?? 0;
+  const totalRallies = overview.total_rallies ?? 0;
+  const totalShots = overview.total_shots ?? 0;
+  const avgRallySec = totalRallies > 0 ? (activePlayTime / totalRallies).toFixed(1) : "0.0";
 
   const cards = [
     {
       title: "Active Play Time",
-      value: `${overview.active_play_duration_sec}s`,
-      subtitle: `Total match: ${metadata.duration_seconds}s`,
+      value: `${activePlayTime}s`,
+      subtitle: `Total match: ${totalDuration}s`,
       icon: Clock,
       color: "text-brand-cyan",
       border: "border-cyan-500/20",
     },
     {
       title: "Total Rallies",
-      value: overview.total_rallies,
-      subtitle: `Avg ${(overview.active_play_duration_sec / (overview.total_rallies || 1)).toFixed(1)}s / rally`,
+      value: totalRallies,
+      subtitle: `Avg ${avgRallySec}s / rally`,
       icon: Zap,
       color: "text-brand-amber",
       border: "border-amber-500/20",
@@ -44,7 +63,7 @@ export const OverviewCards: React.FC<OverviewCardsProps> = ({ analytics }) => {
     },
     {
       title: "Total Shots",
-      value: overview.total_shots,
+      value: totalShots,
       subtitle: "Smash, clear, net & drop",
       icon: Target,
       color: "text-brand-green",
