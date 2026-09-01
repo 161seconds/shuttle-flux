@@ -22,6 +22,7 @@ from pipelines.analyze import run_full_analytics
 from pipelines.render import render_annotated_frame, render_2d_radar_court
 from apps.api.storage import update_job_status, save_analytics_result, is_job_cancelled
 from ml.ocr.scoreboard_reader import ScoreboardReader
+from ml.court_keypoints.detector import CourtKeypointDetector
 
 
 def process_video_pipeline(match_id: str, video_path: str):
