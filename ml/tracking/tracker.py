@@ -1,9 +1,9 @@
 """
 Player Tracking Module:
-Maintains permanent, stable Player IDs across all video frames for both:
-1. Singles (1v1): P1 (Near Court), P2 (Far Court)
-2. Doubles (2v2): P1 & P3 (Team 1 - Near Court), P2 & P4 (Team 2 - Far Court)
-Features smooth bounding box temporal interpolation and zero ID flipping.
+Maintains permanent, stable Player IDs across video frames with ZERO track duplication or ghost overlays.
+Strictly adapts to the actual number of players on court:
+  - 1v1 Singles: Exactly 2 players (P1 = Near, P2 = Far). No phantom P3/P4.
+  - 2v2 Doubles: Up to 4 players (P1/P3 = Near Team, P2/P4 = Far Team) ONLY when 3-4 distinct players are active.
 """
 
 from typing import List, Dict, Any, Optional
@@ -11,37 +11,49 @@ import numpy as np
 
 
 class PlayerTracker:
-    def __init__(self, smoothing_alpha: float = 0.45):
+    def __init__(self, smoothing_alpha: float = 0.40):
         self.smoothing_alpha = smoothing_alpha
         # Permanent tracks dictionary: 1: P1, 2: P2, 3: P3, 4: P4
         self.tracks: Dict[int, Dict[str, Any]] = {}
         self.missing_counts: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0}
-        self.max_hold_frames = 15
-        self.detected_doubles_frames = 0
+        self.max_hold_frames = 12
+        self.multi_player_frame_count = 0
         self.total_frames_tracked = 0
         self.is_doubles_mode = False
 
     def update(self, detections: List[Dict[str, Any]], frame_idx: int) -> List[Dict[str, Any]]:
         """
         Associates detections with permanent Player tracks.
-        Assigns:
-          - Near Court: P1 (Primary) and P3 (Teammate)
-          - Far Court: P2 (Primary) and P4 (Teammate)
+        Enforces physical separation and eliminates duplicate/overlapping tracks.
         """
         self.total_frames_tracked += 1
-        near_dets = [d for d in detections if d.get("role") == "near"]
-        far_dets = [d for d in detections if d.get("role") == "far"]
 
-        # Detect Doubles if >= 2 players on any side
-        if len(near_dets) >= 2 or len(far_dets) >= 2 or (len(near_dets) + len(far_dets) >= 3):
-            self.detected_doubles_frames += 1
-            if self.detected_doubles_frames >= 4:
+        # 1. Deduplicate raw detections (if two bounding boxes overlap or centers are < 50px apart)
+        deduped = []
+        for d in detections:
+            bc = d["bottom_center"]
+            is_dup = False
+            for existing in deduped:
+                ebc = existing["bottom_center"]
+                if np.hypot(bc[0] - ebc[0], bc[1] - ebc[1]) < 55:
+                    is_dup = True
+                    break
+            if not is_dup:
+                deduped.append(d)
+
+        near_dets = [d for d in deduped if d.get("role") == "near"]
+        far_dets = [d for d in deduped if d.get("role") == "far"]
+
+        # Only activate doubles mode if there are >= 3 distinct, separated players in >= 35% of frames
+        if len(deduped) >= 3 or len(near_dets) >= 2 or len(far_dets) >= 2:
+            self.multi_player_frame_count += 1
+            if self.total_frames_tracked >= 15 and (self.multi_player_frame_count / self.total_frames_tracked) > 0.35:
                 self.is_doubles_mode = True
 
         tracked_players = []
 
-        # --- Update Near Court (P1 & P3) ---
-        near_tracked = self._match_and_update_side(
+        # --- Update Near Court ---
+        near_tracked = self._track_court_side(
             candidates=near_dets,
             primary_id=1,
             secondary_id=3,
@@ -50,8 +62,8 @@ class PlayerTracker:
         )
         tracked_players.extend(near_tracked)
 
-        # --- Update Far Court (P2 & P4) ---
-        far_tracked = self._match_and_update_side(
+        # --- Update Far Court ---
+        far_tracked = self._track_court_side(
             candidates=far_dets,
             primary_id=2,
             secondary_id=4,
@@ -60,9 +72,22 @@ class PlayerTracker:
         )
         tracked_players.extend(far_tracked)
 
-        return tracked_players
+        # Final safety check: remove any tracks that are overlapping (< 50px apart)
+        final_players = []
+        for p in tracked_players:
+            p_bc = p["bottom_center"]
+            overlap = False
+            for existing in final_players:
+                e_bc = existing["bottom_center"]
+                if np.hypot(p_bc[0] - e_bc[0], p_bc[1] - e_bc[1]) < 45:
+                    overlap = True
+                    break
+            if not overlap:
+                final_players.append(p)
 
-    def _match_and_update_side(
+        return final_players
+
+    def _track_court_side(
         self,
         candidates: List[Dict[str, Any]],
         primary_id: int,
@@ -71,75 +96,92 @@ class PlayerTracker:
         frame_idx: int,
     ) -> List[Dict[str, Any]]:
         results = []
-        assigned_cands = set()
 
-        # Target IDs for this court side
-        track_ids = [primary_id, secondary_id] if self.is_doubles_mode else [primary_id]
-
-        for p_id in track_ids:
-            best_cand_idx = None
-            best_dist = float("inf")
-
-            if p_id in self.tracks and candidates:
-                prev_bc = self.tracks[p_id]["bottom_center"]
-                for idx, c in enumerate(candidates):
-                    if idx in assigned_cands:
-                        continue
-                    curr_bc = c["bottom_center"]
-                    dist = np.hypot(curr_bc[0] - prev_bc[0], curr_bc[1] - prev_bc[1])
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_cand_idx = idx
-
-            # If no previous track, assign first unassigned candidate
-            if best_cand_idx is None:
-                for idx, _ in enumerate(candidates):
-                    if idx not in assigned_cands:
-                        best_cand_idx = idx
-                        break
-
-            if best_cand_idx is not None:
-                assigned_cands.add(best_cand_idx)
-                cand = candidates[best_cand_idx]
-                self.missing_counts[p_id] = 0
-
-                if p_id in self.tracks:
-                    prev_bbox = self.tracks[p_id]["bbox"]
-                    curr_bbox = cand["bbox"]
-                    smoothed_bbox = [
-                        round((1.0 - self.smoothing_alpha) * prev_bbox[i] + self.smoothing_alpha * curr_bbox[i], 1)
-                        for i in range(4)
-                    ]
-                    prev_bc = self.tracks[p_id]["bottom_center"]
-                    curr_bc = cand["bottom_center"]
-                    smoothed_bc = [
-                        round((1.0 - self.smoothing_alpha) * prev_bc[i] + self.smoothing_alpha * curr_bc[i], 1)
-                        for i in range(2)
-                    ]
-                    self.tracks[p_id] = {
-                        "player_id": p_id,
-                        "label": f"VĐV {p_id} ({side_label})",
-                        "bbox": smoothed_bbox,
-                        "bottom_center": smoothed_bc,
-                        "confidence": cand["confidence"],
-                        "frame_idx": frame_idx,
-                    }
-                else:
-                    self.tracks[p_id] = {
-                        "player_id": p_id,
-                        "label": f"VĐV {p_id} ({side_label})",
-                        "bbox": cand["bbox"],
-                        "bottom_center": cand["bottom_center"],
-                        "confidence": cand["confidence"],
-                        "frame_idx": frame_idx,
-                    }
-                results.append(dict(self.tracks[p_id]))
-
-            elif p_id in self.tracks and self.missing_counts[p_id] < self.max_hold_frames:
-                self.missing_counts[p_id] += 1
-                held = dict(self.tracks[p_id])
+        if len(candidates) == 0:
+            # Hold primary player if recently seen
+            if primary_id in self.tracks and self.missing_counts[primary_id] < self.max_hold_frames:
+                self.missing_counts[primary_id] += 1
+                held = dict(self.tracks[primary_id])
                 held["frame_idx"] = frame_idx
                 held["confidence"] = max(0.35, held["confidence"] * 0.94)
                 results.append(held)
+            return results
+
+        if len(candidates) == 1 or not self.is_doubles_mode:
+            # Exactly 1 player on this side: update primary player ONLY
+            cand = candidates[0]
+            self.missing_counts[primary_id] = 0
+            self.tracks[primary_id] = self._build_smoothed_track(primary_id, cand, side_label, frame_idx)
+            results.append(dict(self.tracks[primary_id]))
+            # Reset secondary missing count so it doesn't linger as a ghost
+            self.missing_counts[secondary_id] = 999
+            return results
+
+        # 2 distinct candidates in Doubles mode
+        c0, c1 = candidates[0], candidates[1]
+
+        # Spatial matching with previous positions
+        if primary_id in self.tracks and secondary_id in self.tracks:
+            p1_bc = self.tracks[primary_id]["bottom_center"]
+            p2_bc = self.tracks[secondary_id]["bottom_center"]
+
+            d00 = np.hypot(c0["bottom_center"][0] - p1_bc[0], c0["bottom_center"][1] - p1_bc[1])
+            d11 = np.hypot(c1["bottom_center"][0] - p2_bc[0], c1["bottom_center"][1] - p2_bc[1])
+            d01 = np.hypot(c0["bottom_center"][0] - p2_bc[0], c0["bottom_center"][1] - p2_bc[1])
+            d10 = np.hypot(c1["bottom_center"][0] - p1_bc[0], c1["bottom_center"][1] - p1_bc[1])
+
+            if (d00 + d11) <= (d01 + d10):
+                cand_primary, cand_secondary = c0, c1
+            else:
+                cand_primary, cand_secondary = c1, c0
+        else:
+            # Sort left to right
+            if c0["bottom_center"][0] <= c1["bottom_center"][0]:
+                cand_primary, cand_secondary = c0, c1
+            else:
+                cand_primary, cand_secondary = c1, c0
+
+        self.missing_counts[primary_id] = 0
+        self.missing_counts[secondary_id] = 0
+
+        self.tracks[primary_id] = self._build_smoothed_track(primary_id, cand_primary, side_label, frame_idx)
+        self.tracks[secondary_id] = self._build_smoothed_track(secondary_id, cand_secondary, side_label, frame_idx)
+
+        results.append(dict(self.tracks[primary_id]))
+        results.append(dict(self.tracks[secondary_id]))
 
         return results
+
+    def _build_smoothed_track(
+        self, p_id: int, cand: Dict[str, Any], side_label: str, frame_idx: int
+    ) -> Dict[str, Any]:
+        if p_id in self.tracks:
+            prev_bbox = self.tracks[p_id]["bbox"]
+            curr_bbox = cand["bbox"]
+            smoothed_bbox = [
+                round((1.0 - self.smoothing_alpha) * prev_bbox[i] + self.smoothing_alpha * curr_bbox[i], 1)
+                for i in range(4)
+            ]
+            prev_bc = self.tracks[p_id]["bottom_center"]
+            curr_bc = cand["bottom_center"]
+            smoothed_bc = [
+                round((1.0 - self.smoothing_alpha) * prev_bc[i] + self.smoothing_alpha * curr_bc[i], 1)
+                for i in range(2)
+            ]
+            return {
+                "player_id": p_id,
+                "label": f"VĐV {p_id} ({side_label})",
+                "bbox": smoothed_bbox,
+                "bottom_center": smoothed_bc,
+                "confidence": cand["confidence"],
+                "frame_idx": frame_idx,
+            }
+        else:
+            return {
+                "player_id": p_id,
+                "label": f"VĐV {p_id} ({side_label})",
+                "bbox": cand["bbox"],
+                "bottom_center": cand["bottom_center"],
+                "confidence": cand["confidence"],
+                "frame_idx": frame_idx,
+            }

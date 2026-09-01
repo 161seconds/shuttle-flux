@@ -1,7 +1,7 @@
 """
 Scoreboard & Jersey OCR Reader Module:
-Extracts player names and country codes from badminton broadcast scoreboard HUD
-(Top-Left, Bottom-Left, or Top-Center) and near-player jersey back text using OCR.
+Extracts real player names, country codes, and match scores from badminton broadcast scoreboard HUDs.
+Filters out tournament sponsors, logos, and city names (HSBC, BWF, World Tour, Shenzhen, etc.).
 """
 
 from typing import Dict, Any, List, Optional
@@ -26,72 +26,86 @@ class ScoreboardReader:
         self.reader = None
         if HAS_EASYOCR:
             try:
-                # Initialize reader with English/Latin recognition
                 self.reader = easyocr.Reader(languages, gpu=False, verbose=False)
                 print("[ScoreboardReader] EasyOCR initialized successfully.")
             except Exception as e:
                 print(f"[ScoreboardReader] EasyOCR init error: {e}")
 
+        # Comprehensive blacklist of tournament headers, sponsors, and broadcast metadata
+        self.blacklist_words = {
+            "HSBC", "BWF", "WORLD", "TOUR", "SUPER", "FINALS", "SHENZHEN",
+            "CHANGZHOU", "CHENGDU", "CHINA", "MASTERS", "OPEN", "DENMARK",
+            "ODENSE", "ALL", "ENGLAND", "INDONESIA", "MALAYSIA", "JAPAN",
+            "KOREA", "FRENCH", "PARIS", "GERMAN", "SWISS", "THAILAND", "VIETNAM",
+            "VICTOR", "YONEX", "LI-NING", "LINING", "GANTEN", "TOTAL",
+            "TOTALENERGIES", "PETRONAS", "DAIHATSU", "PERODUA", "TANGKIS",
+            "SPORT", "BADMINTON", "SINGLES", "DOUBLES", "MEN", "WOMEN",
+            "MIXED", "GAME", "SET", "MATCH", "LIVE", "COURT", "ROUND",
+            "QUARTER", "SEMI", "FINAL", "CHAMPIONSHIP", "SERIES", "GRADE"
+        }
+
     def extract_player_names_from_frame(
         self, frame: np.ndarray, near_player_bbox: Optional[List[float]] = None
     ) -> Dict[str, Any]:
         """
-        Scans broadcast scoreboard HUD (Top-Left, Bottom-Left) and player jersey to extract athlete names.
+        Scans broadcast scoreboard HUD to extract actual athlete names and scores.
         """
         h, w, _ = frame.shape
-        extracted_names: List[str] = []
+        raw_items: List[Dict[str, Any]] = []
 
         if self.reader is not None and HAS_OPENCV:
             try:
-                # Region A: Top-Left BWF Broadcast Scoreboard (e.g., China Open, Denmark Open)
-                top_left_roi = frame[int(h * 0.15) : int(h * 0.42), int(w * 0.05) : int(w * 0.32)]
-                if top_left_roi.size > 0:
-                    results_tl = self.reader.readtext(top_left_roi)
-                    for _, text, conf in results_tl:
+                # Region A: Top-Left Broadcast Scoreboard (Very top left white/dark card)
+                # BWF broadcasts place the score card at x: 2%-30%, y: 3%-20%
+                tl_roi = frame[int(h * 0.02) : int(h * 0.22), int(w * 0.02) : int(w * 0.32)]
+                if tl_roi.size > 0:
+                    results_tl = self.reader.readtext(tl_roi)
+                    for bbox, text, conf in results_tl:
                         clean = self._clean_player_name(text)
-                        if clean and conf > 0.35 and clean not in extracted_names:
-                            extracted_names.append(clean)
+                        if clean and conf > 0.30:
+                            raw_items.append({"name": clean, "conf": conf, "y": bbox[0][1]})
 
-                # Region B: Bottom-Left HUD Scoreboard (e.g. World Tour Finals)
-                if len(extracted_names) < 2:
-                    bl_roi = frame[int(h * 0.68) : int(h * 0.98), int(w * 0.02) : int(w * 0.45)]
+                # Region B: Mid-Left Scoreboard Banner (x: 2%-32%, y: 15%-38%)
+                if len(raw_items) < 2:
+                    ml_roi = frame[int(h * 0.15) : int(h * 0.38), int(w * 0.02) : int(w * 0.32)]
+                    if ml_roi.size > 0:
+                        results_ml = self.reader.readtext(ml_roi)
+                        for bbox, text, conf in results_ml:
+                            clean = self._clean_player_name(text)
+                            if clean and conf > 0.30 and not any(r["name"] == clean for r in raw_items):
+                                raw_items.append({"name": clean, "conf": conf, "y": bbox[0][1] + int(h * 0.15)})
+
+                # Region C: Bottom-Left Scoreboard HUD (x: 2%-42%, y: 70%-96%)
+                if len(raw_items) < 2:
+                    bl_roi = frame[int(h * 0.70) : int(h * 0.96), int(w * 0.02) : int(w * 0.42)]
                     if bl_roi.size > 0:
                         results_bl = self.reader.readtext(bl_roi)
-                        for _, text, conf in results_bl:
+                        for bbox, text, conf in results_bl:
                             clean = self._clean_player_name(text)
-                            if clean and conf > 0.35 and clean not in extracted_names:
-                                extracted_names.append(clean)
-
-                # Region C: Top-Center / Header HUD Scoreboard
-                if len(extracted_names) < 2:
-                    top_roi = frame[int(h * 0.02) : int(h * 0.22), int(w * 0.02) : int(w * 0.50)]
-                    if top_roi.size > 0:
-                        results_top = self.reader.readtext(top_roi)
-                        for _, text, conf in results_top:
-                            clean = self._clean_player_name(text)
-                            if clean and conf > 0.35 and clean not in extracted_names:
-                                extracted_names.append(clean)
+                            if clean and conf > 0.30 and not any(r["name"] == clean for r in raw_items):
+                                raw_items.append({"name": clean, "conf": conf, "y": bbox[0][1] + int(h * 0.70)})
             except Exception as e:
-                print(f"[ScoreboardReader] Scoreboard OCR warning: {e}")
+                print(f"[ScoreboardReader] OCR warning: {e}")
 
-        # 2. Check Near Player Jersey Back Text
+        # Check Jersey Back Text for Near Player
         jersey_name = None
         if self.reader is not None and HAS_OPENCV and near_player_bbox is not None:
             try:
                 x1, y1, x2, y2 = [int(c) for c in near_player_bbox]
-                # Crop upper back of player
                 jersey_roi = frame[max(0, y1) : min(h, y1 + int((y2 - y1) * 0.45)), max(0, x1) : min(w, x2)]
                 if jersey_roi.size > 0:
                     j_results = self.reader.readtext(jersey_roi)
                     for _, text, conf in j_results:
-                        clean = re.sub(r"[^A-Za-z\s]", "", text).strip()
-                        # Ignore brand names like YONEX, VICTOR, LI-NING
-                        if len(clean) >= 3 and conf > 0.40:
-                            if clean.upper() not in ["YONEX", "VICTOR", "LINING", "LI-NING", "HSBC", "BWF"]:
-                                jersey_name = clean.title()
-                                break
+                        clean = self._clean_player_name(text)
+                        if clean and conf > 0.40:
+                            jersey_name = clean
+                            break
             except Exception as e:
                 print(f"[ScoreboardReader] Jersey OCR warning: {e}")
+
+        # Sort extracted items by vertical Y position (Top row = Far player, Bottom row = Near player)
+        raw_items.sort(key=lambda item: item["y"])
+        extracted_names = [item["name"] for item in raw_items]
 
         # Format Final Player Names
         p1_name = "VĐV 1 (Gần)"
@@ -99,9 +113,9 @@ class ScoreboardReader:
         source = "default"
 
         if len(extracted_names) >= 2:
-            # Usually line 1 is Far Player or Near Player depending on service
-            p1_name = extracted_names[1]
+            # Row 0 is Top (Player 2 - Far Court), Row 1 is Bottom (Player 1 - Near Court)
             p2_name = extracted_names[0]
+            p1_name = extracted_names[1]
             source = "scoreboard_ocr"
         elif len(extracted_names) == 1:
             p2_name = extracted_names[0]
@@ -130,29 +144,33 @@ class ScoreboardReader:
 
         text = raw_text.strip()
 
-        # Discard pure numbers, scores (e.g., "17", "21 15", "1-0")
-        if re.match(r"^[\d\s\-\:\.\/]+$", text):
+        # Discard pure numbers, scores (e.g., "17", "21 15", "1-0", "21-18")
+        if re.match(r"^[\d\s\-\:\.\/\[\]\(\)]+$", text):
             return None
 
-        # Discard common broadcast HUD keywords & sponsors
-        ignore_words = [
-            "HSBC", "VICTOR", "YONEX", "BWF", "WORLD", "TOUR", "SUPER",
-            "GANTEN", "TOTAL", "TOTALENERGIES", "CHENGDU", "CHANGZHOU",
-            "ODENSE", "DENMARK", "OPEN", "CHINA", "ALL", "ENGLAND",
-            "SINGLES", "DOUBLES", "GAME", "MATCH", "SET", "LIVE", "FINAL"
-        ]
-
-        text_upper = text.upper()
-        for kw in ignore_words:
-            if kw in text_upper and len(text_upper) < len(kw) + 4:
-                return None
-
-        # Extract names with capital letters (e.g., "VITIDSARN K", "NARAOKA K", "AXELSEN")
+        # Clean non-alphabetical characters except dots, dashes, spaces
         clean = re.sub(r"[^A-Za-z\s\.\-]", "", text).strip()
+        words = clean.split()
 
-        # Remove single characters or noise
-        if len(clean) < 3:
+        if not words:
             return None
 
-        # If country code at end (e.g. "VITIDSARN K THA"), clean formatting
-        return clean.title()
+        # Discard if ANY word matches tournament blacklist
+        filtered_words = []
+        for w in words:
+            w_upper = w.upper().replace(".", "").replace("-", "")
+            if w_upper in self.blacklist_words:
+                return None  # If text contains blacklist sponsor/tournament word, discard entire line
+            if len(w) > 1:
+                filtered_words.append(w)
+
+        if not filtered_words:
+            return None
+
+        clean_name = " ".join(filtered_words)
+
+        # Minimum length check for a realistic athlete name (at least 3 letters)
+        if len(clean_name.replace(" ", "")) < 3:
+            return None
+
+        return clean_name.title()

@@ -130,10 +130,10 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
 
   // Flexible Video Court Nodes State (Auto-detected per video, dynamically draggable)
   const defaultCourtNodes = {
-    top_left: (analytics.court_nodes?.top_left || [0.35, 0.52]) as [number, number],
-    top_right: (analytics.court_nodes?.top_right || [0.65, 0.52]) as [number, number],
-    bottom_left: (analytics.court_nodes?.bottom_left || [0.18, 0.90]) as [number, number],
-    bottom_right: (analytics.court_nodes?.bottom_right || [0.82, 0.90]) as [number, number],
+    top_left: (analytics.court_nodes?.top_left || [0.285, 0.442]) as [number, number],
+    top_right: (analytics.court_nodes?.top_right || [0.715, 0.442]) as [number, number],
+    bottom_left: (analytics.court_nodes?.bottom_left || [0.165, 0.895]) as [number, number],
+    bottom_right: (analytics.court_nodes?.bottom_right || [0.835, 0.895]) as [number, number],
   };
 
   const [courtNodes, setCourtNodes] = useState(defaultCourtNodes);
@@ -152,10 +152,10 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   useEffect(() => {
     if (analytics.court_nodes) {
       setCourtNodes({
-        top_left: analytics.court_nodes.top_left || [0.35, 0.52],
-        top_right: analytics.court_nodes.top_right || [0.65, 0.52],
-        bottom_left: analytics.court_nodes.bottom_left || [0.18, 0.90],
-        bottom_right: analytics.court_nodes.bottom_right || [0.82, 0.90],
+        top_left: analytics.court_nodes.top_left || [0.285, 0.442],
+        top_right: analytics.court_nodes.top_right || [0.715, 0.442],
+        bottom_left: analytics.court_nodes.bottom_left || [0.165, 0.895],
+        bottom_right: analytics.court_nodes.bottom_right || [0.835, 0.895],
       });
     }
   }, [analytics]);
@@ -633,12 +633,28 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                 const bl = courtNodes.bottom_left;
                 const br = courtNodes.bottom_right;
 
-                const netL: [number, number] = [tl[0] * 0.45 + bl[0] * 0.55, tl[1] * 0.45 + bl[1] * 0.55];
-                const netR: [number, number] = [tr[0] * 0.45 + br[0] * 0.55, tr[1] * 0.45 + br[1] * 0.55];
-                const fslL: [number, number] = [tl[0] * 0.80 + bl[0] * 0.20, tl[1] * 0.80 + bl[1] * 0.20];
-                const fslR: [number, number] = [tr[0] * 0.80 + br[0] * 0.20, tr[1] * 0.80 + br[1] * 0.20];
-                const nslL: [number, number] = [tl[0] * 0.22 + bl[0] * 0.78, tl[1] * 0.22 + bl[1] * 0.78];
-                const nslR: [number, number] = [tr[0] * 0.22 + br[0] * 0.78, tr[1] * 0.22 + br[1] * 0.78];
+                const dxL = bl[0] - tl[0];
+                const dyL = bl[1] - tl[1];
+                const dxR = br[0] - tr[0];
+                const dyR = br[1] - tr[1];
+
+                // Net Line is at center of court in 3D (6.70m / 13.40m = 50%), projecting to 20% in foreshortened 2D Y
+                const netL: [number, number] = [tl[0] + 0.20 * dxL - 0.025, tl[1] + 0.20 * dyL];
+                const netR: [number, number] = [tr[0] + 0.20 * dxR + 0.025, tr[1] + 0.20 * dyR];
+
+                // Far Short Service Line (4.70m from baseline = 35% in 3D -> 11.8% in 2D)
+                const fslL: [number, number] = [tl[0] + 0.118 * dxL, tl[1] + 0.118 * dyL];
+                const fslR: [number, number] = [tr[0] + 0.118 * dxR, tr[1] + 0.118 * dyR];
+
+                // Near Short Service Line (8.70m from far baseline = 65% in 3D -> 31.7% in 2D)
+                const nslL: [number, number] = [tl[0] + 0.317 * dxL, tl[1] + 0.317 * dyL];
+                const nslR: [number, number] = [tr[0] + 0.317 * dxR, tr[1] + 0.317 * dyR];
+
+                // Singles Sidelines (Inner Tramlines: 7.5% inset from doubles sidelines)
+                const sTl: [number, number] = [tl[0] + 0.075 * (tr[0] - tl[0]), tl[1]];
+                const sTr: [number, number] = [tr[0] - 0.075 * (tr[0] - tl[0]), tr[1]];
+                const sBl: [number, number] = [bl[0] + 0.075 * (br[0] - bl[0]), bl[1]];
+                const sBr: [number, number] = [br[0] - 0.075 * (br[0] - bl[0]), br[1]];
 
                 const midTop: [number, number] = [(tl[0] + tr[0]) / 2, (tl[1] + tr[1]) / 2];
                 const midFarService: [number, number] = [(fslL[0] + fslR[0]) / 2, (fslL[1] + fslR[1]) / 2];
@@ -656,7 +672,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                   >
-                    {/* Outer Court Perspective Perimeter Polygon */}
+                    {/* Outer Court Perspective Perimeter Polygon (Doubles Boundaries) */}
                     <polygon
                       points={`${tl[0] * 100},${tl[1] * 100} ${tr[0] * 100},${tr[1] * 100} ${br[0] * 100},${br[1] * 100} ${bl[0] * 100},${bl[1] * 100}`}
                       fill={isCalibrating ? "rgba(245, 158, 11, 0.12)" : "rgba(16, 185, 129, 0.06)"}
@@ -665,15 +681,22 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                       strokeLinejoin="round"
                     />
 
-                    {/* Net Line (Cyan Neon Dashed) */}
+                    {/* Singles Sidelines (Inner Tramlines) */}
                     <line
-                      x1={netL[0] * 100}
-                      y1={netL[1] * 100}
-                      x2={netR[0] * 100}
-                      y2={netR[1] * 100}
-                      stroke="#00e5ff"
-                      strokeWidth="1.4"
-                      strokeDasharray="1.5, 1"
+                      x1={sTl[0] * 100}
+                      y1={sTl[1] * 100}
+                      x2={sBl[0] * 100}
+                      y2={sBl[1] * 100}
+                      stroke="rgba(16, 185, 129, 0.55)"
+                      strokeWidth="0.5"
+                    />
+                    <line
+                      x1={sTr[0] * 100}
+                      y1={sTr[1] * 100}
+                      x2={sBr[0] * 100}
+                      y2={sBr[1] * 100}
+                      stroke="rgba(16, 185, 129, 0.55)"
+                      strokeWidth="0.5"
                     />
 
                     {/* Far Short Service Line */}
@@ -682,8 +705,49 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                       y1={fslL[1] * 100}
                       x2={fslR[0] * 100}
                       y2={fslR[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.6)"
+                      stroke="rgba(16, 185, 129, 0.65)"
                       strokeWidth="0.6"
+                    />
+
+                    {/* Realistic Badminton Net with Posts & Cord (Exact Center of Court) */}
+                    {/* Vertical Net Post Left */}
+                    <line
+                      x1={netL[0] * 100}
+                      y1={(netL[1] - 0.035) * 100}
+                      x2={netL[0] * 100}
+                      y2={netL[1] * 100}
+                      stroke="#00e5ff"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                    {/* Vertical Net Post Right */}
+                    <line
+                      x1={netR[0] * 100}
+                      y1={(netR[1] - 0.035) * 100}
+                      x2={netR[0] * 100}
+                      y2={netR[1] * 100}
+                      stroke="#00e5ff"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                    {/* Top White Net Cord */}
+                    <line
+                      x1={netL[0] * 100}
+                      y1={(netL[1] - 0.032) * 100}
+                      x2={netR[0] * 100}
+                      y2={(netR[1] - 0.032) * 100}
+                      stroke="#ffffff"
+                      strokeWidth="1.0"
+                    />
+                    {/* Net Mesh Band */}
+                    <line
+                      x1={netL[0] * 100}
+                      y1={netL[1] * 100}
+                      x2={netR[0] * 100}
+                      y2={netR[1] * 100}
+                      stroke="#00e5ff"
+                      strokeWidth="1.6"
+                      strokeDasharray="1.5, 0.8"
                     />
 
                     {/* Near Short Service Line */}
@@ -692,17 +756,17 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                       y1={nslL[1] * 100}
                       x2={nslR[0] * 100}
                       y2={nslR[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.6)"
+                      stroke="rgba(16, 185, 129, 0.65)"
                       strokeWidth="0.6"
                     />
 
-                    {/* Center Longitudinal Line */}
+                    {/* Center Longitudinal Line (Far Court & Near Court) */}
                     <line
                       x1={midTop[0] * 100}
                       y1={midTop[1] * 100}
                       x2={midFarService[0] * 100}
                       y2={midFarService[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.5)"
+                      stroke="rgba(16, 185, 129, 0.55)"
                       strokeWidth="0.5"
                     />
                     <line
@@ -710,7 +774,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                       y1={midNearService[1] * 100}
                       x2={midBottom[0] * 100}
                       y2={midBottom[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.5)"
+                      stroke="rgba(16, 185, 129, 0.55)"
                       strokeWidth="0.5"
                     />
 
