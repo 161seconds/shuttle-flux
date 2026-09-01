@@ -84,15 +84,23 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
                         stage="downloading_youtube",
                     )
 
-        # Optimize format to 720p: downloads fast, enforces MP4 container
+        # Optimize format to 720p: bypass bot challenge via Android/iOS player clients
         ydl_opts = {
-            "format": "best[ext=mp4][height<=720]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+            "format": "best[ext=mp4][height<=720]/best[height<=720]/bestvideo[height<=720]+bestaudio/best",
             "outtmpl": target_video_path,
             "merge_output_format": "mp4",
             "quiet": False,
             "no_warnings": True,
             "overwrites": True,
             "progress_hooks": [yt_progress_hook],
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb"],
+                }
+            },
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            },
         }
 
         # Locate pre-bundled FFmpeg binary from imageio-ffmpeg
@@ -105,8 +113,19 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
         except Exception as fe:
             print(f"[FFmpeg Loader Warning] {fe}")
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+        except Exception as dl_err:
+            print(f"[YouTube First Attempt Failed: {dl_err}]. Retrying with fallback generic client...")
+            fallback_opts = dict(ydl_opts)
+            fallback_opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["ios", "android"],
+                }
+            }
+            with yt_dlp.YoutubeDL(fallback_opts) as ydl_fallback:
+                ydl_fallback.download([url])
 
         # Check if file was saved with extension variant (e.g. .mkv or .webm)
         actual_path = target_video_path
