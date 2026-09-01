@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://user:password@postgres:5432/badminton_ai
+    depends_on:
+      - redis
+      - postgres
+
+  worker:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://user:password@postgres:5432/badminton_ai
+    depends_on:
+      - redis
+      - postgres
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: badminton_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
