@@ -62,11 +62,11 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
         )
         import yt_dlp
 
-        # Download best mp4 video stream up to 1080p for fast inference
+        # Download best direct mp4 stream (avoids hard ffmpeg merge requirement)
         ydl_opts = {
-            "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
             "outtmpl": target_video_path,
-            "quiet": True,
+            "quiet": False,
             "no_warnings": True,
             "overwrites": True,
         }
@@ -79,6 +79,7 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
         # Continue with CV / ML analytics pipeline
         process_video_pipeline(match_id, target_video_path)
     except Exception as e:
+        print(f"[YouTube Pipeline Error] {e}")
         update_job_status(
             match_id=match_id,
             status="failed",
