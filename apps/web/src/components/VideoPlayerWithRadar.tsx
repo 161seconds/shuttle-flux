@@ -28,6 +28,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
 }) => {
   const [viewMode, setViewMode] = useState<"dual" | "single">("dual");
   const [showOverlays, setShowOverlays] = useState(true);
+  const [showVoronoi, setShowVoronoi] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -182,7 +183,21 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
             }`}
           >
             {showOverlays ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            <span>{showOverlays ? "Ẩn Khung AI" : "Hiện Khung AI"}</span>
+            <span>{showOverlays ? "Khung AI: Bật" : "Khung AI: Tắt"}</span>
+          </button>
+
+          {/* Toggle Voronoi Court Space Control */}
+          <button
+            onClick={() => setShowVoronoi(!showVoronoi)}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+              showVoronoi
+                ? "bg-purple-950/60 border-purple-700 text-purple-300 shadow-sm shadow-purple-500/20"
+                : "bg-surface border-gray-800 text-gray-400 hover:text-gray-200"
+            }`}
+            title="Hiển thị vùng kiểm soát không gian sân Voronoi"
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>{showVoronoi ? "Voronoi: Bật" : "Voronoi: Tắt"}</span>
           </button>
         </div>
       </div>
@@ -405,7 +420,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
             </span>
           </div>
 
-          <RadarCanvas currentFrame={currentFrame} width={260} height={460} />
+          <RadarCanvas currentFrame={currentFrame} width={260} height={460} showVoronoi={showVoronoi} />
 
           <div className="w-full mt-3 pt-2 border-t border-gray-800/80 flex items-center justify-between text-[11px] text-gray-400">
             <div className="flex items-center space-x-1.5">

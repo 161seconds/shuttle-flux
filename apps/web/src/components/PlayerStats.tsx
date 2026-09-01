@@ -29,18 +29,28 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({ analytics }) => {
         </div>
 
         {/* Key Metrics */}
-        <div className="grid grid-cols-3 gap-3 my-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
           <div className="bg-surface p-3 rounded-xl border border-gray-800 text-center">
-            <span className="text-[11px] text-gray-400 block mb-1">Distance</span>
-            <span className="text-lg font-extrabold text-white">{p.distance_meters}m</span>
+            <span className="text-[11px] text-gray-400 block mb-1">Quãng đường</span>
+            <span className="text-base font-extrabold text-white">{p.distance_meters}m</span>
           </div>
           <div className="bg-surface p-3 rounded-xl border border-gray-800 text-center">
-            <span className="text-[11px] text-gray-400 block mb-1">Avg Speed</span>
-            <span className="text-lg font-extrabold text-white">{p.avg_speed_mps} m/s</span>
+            <span className="text-[11px] text-gray-400 block mb-1">Tốc độ TB</span>
+            <span className="text-base font-extrabold text-white">
+              {(p.avg_speed_mps * 3.6).toFixed(1)} <span className="text-[10px] text-gray-400">km/h</span>
+            </span>
           </div>
           <div className="bg-surface p-3 rounded-xl border border-gray-800 text-center">
-            <span className="text-[11px] text-gray-400 block mb-1">Peak Speed</span>
-            <span className="text-lg font-extrabold text-white">{p.max_speed_mps} m/s</span>
+            <span className="text-[11px] text-gray-400 block mb-1">Tốc độ Max</span>
+            <span className="text-base font-extrabold text-white">
+              {(p.max_speed_mps * 3.6).toFixed(1)} <span className="text-[10px] text-gray-400">km/h</span>
+            </span>
+          </div>
+          <div className="bg-surface p-3 rounded-xl border border-gray-800 text-center">
+            <span className="text-[11px] text-gray-400 block mb-1">Kiểm soát sân</span>
+            <span className="text-base font-extrabold text-brand-cyan">
+              {p.court_control_pct !== undefined ? `${p.court_control_pct}%` : "50%"}
+            </span>
           </div>
         </div>
 

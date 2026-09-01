@@ -4,7 +4,7 @@ Computes the 3x3 Homography Matrix H and transforms points between Camera Image 
 Supports both OpenCV and pure NumPy Direct Linear Transformation (DLT).
 """
 
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any
 import numpy as np
 from analytics.court import get_standard_court_keypoints, normalize_court_coordinates, SINGLES_WIDTH_M, COURT_LENGTH_M
 
@@ -13,6 +13,12 @@ try:
     HAS_OPENCV = True
 except ImportError:
     HAS_OPENCV = False
+
+try:
+    from sports.common.view import ViewTransformer
+    HAS_ROBOFLOW_SPORTS = True
+except ImportError:
+    HAS_ROBOFLOW_SPORTS = False
 
 
 def compute_dlt_homography(
@@ -46,12 +52,14 @@ def compute_dlt_homography(
 class CourtCalibrator:
     """
     Handles perspective transformation mapping camera pixels to normalized [0, 1] court coordinates.
+    Utilizes Roboflow ViewTransformer and OpenCV/NumPy Homography estimation.
     """
 
     def __init__(self, is_doubles: bool = False):
         self.is_doubles = is_doubles
         self.H: Optional[np.ndarray] = None
         self.H_inv: Optional[np.ndarray] = None
+        self.transformer: Optional[Any] = None
         self.court_keypoints_metric = get_standard_court_keypoints(is_doubles)
 
     def calibrate_from_points(
@@ -64,6 +72,15 @@ class CourtCalibrator:
         """
         if len(src_image_points) < 4 or len(dst_court_points_norm) < 4:
             return False
+
+        if HAS_ROBOFLOW_SPORTS:
+            try:
+                self.transformer = ViewTransformer(
+                    source=np.array(src_image_points, dtype=np.float32),
+                    target=np.array(dst_court_points_norm, dtype=np.float32),
+                )
+            except Exception:
+                self.transformer = None
 
         if HAS_OPENCV:
             src_pts = np.array(src_image_points, dtype=np.float32).reshape(-1, 1, 2)
@@ -102,7 +119,21 @@ class CourtCalibrator:
         """
         Transforms pixel points (N, 2) to normalized court plane [0, 1].
         """
-        if self.H is None or len(image_points) == 0:
+        if len(image_points) == 0:
+            return np.empty((0, 2), dtype=np.float32)
+
+        if self.transformer is not None:
+            try:
+                pts = np.array(image_points, dtype=np.float32)
+                transformed = self.transformer.transform_points(pts)
+                if clip_bounds:
+                    transformed[:, 0] = np.clip(transformed[:, 0], 0.0, 1.0)
+                    transformed[:, 1] = np.clip(transformed[:, 1], 0.0, 1.0)
+                return transformed.astype(np.float32)
+            except Exception:
+                pass
+
+        if self.H is None:
             return np.empty((0, 2), dtype=np.float32)
 
         pts = np.array(image_points, dtype=np.float64)

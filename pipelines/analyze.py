@@ -10,6 +10,7 @@ from analytics.movement import (
     compute_distance_meters,
     compute_speed_profile,
     compute_zone_occupancy,
+    compute_voronoi_court_control,
 )
 from analytics.heatmap import generate_court_heatmap
 from analytics.rally import RallySegmenter
@@ -69,12 +70,18 @@ def run_full_analytics(
                 }
             )
 
-    # 2. Compute Player Metrics
+    # 2. Compute Voronoi Spatial Court Control
+    p1_traj_arr = np.array(player_trajectories[1], dtype=np.float32)
+    p2_traj_arr = np.array(player_trajectories[2], dtype=np.float32)
+    voronoi_control = compute_voronoi_court_control(p1_traj_arr, p2_traj_arr)
+
+    # 3. Compute Player Metrics
     player_stats: Dict[str, Any] = {}
     heatmaps: Dict[str, Any] = {}
 
     for p_id in [1, 2]:
         raw_traj = player_trajectories[p_id]
+        control_pct = voronoi_control.get(f"player_{p_id}_control_pct", 50.0)
         if raw_traj:
             smoothed_traj = smooth_court_trajectory(raw_traj, window_size=5)
             speed_profile = compute_speed_profile(smoothed_traj, fps=fps, is_doubles=is_doubles)
@@ -89,6 +96,7 @@ def run_full_analytics(
                 "avg_speed_mps": speed_profile["avg_speed_mps"],
                 "max_speed_mps": speed_profile["max_speed_mps"],
                 "active_time_seconds": speed_profile["active_seconds"],
+                "court_control_pct": control_pct,
                 "zone_occupancy": occupancy,
             }
             heatmaps[f"player_{p_id}"] = heatmap
@@ -100,18 +108,19 @@ def run_full_analytics(
                 "avg_speed_mps": 0.0,
                 "max_speed_mps": 0.0,
                 "active_time_seconds": 0.0,
+                "court_control_pct": control_pct,
                 "zone_occupancy": {},
             }
             heatmaps[f"player_{p_id}"] = {"grid": [], "max_density": 0.0}
 
-    # 3. Rally Segmentation
+    # 4. Rally Segmentation
     segmenter = RallySegmenter(fps=fps)
     rallies = segmenter.segment(frame_records)
 
-    # 4. Hit Detection & Shot Categorization
+    # 5. Hit Detection & Shot Categorization
     hits = detect_hits_and_shots(shuttle_positions, player_positions_by_id, fps=fps)
 
-    # 5. Build Final Aggregated Result
+    # 6. Build Final Aggregated Result
     return {
         "metadata": {
             **match_metadata,
@@ -125,6 +134,7 @@ def run_full_analytics(
             "active_play_duration_sec": round(sum(r["duration_seconds"] for r in rallies), 2),
             "total_distance_player_1_m": player_stats.get("player_1", {}).get("distance_meters", 0.0),
             "total_distance_player_2_m": player_stats.get("player_2", {}).get("distance_meters", 0.0),
+            "court_control": voronoi_control,
         },
         "players": player_stats,
         "rallies": rallies,

@@ -5,12 +5,14 @@ interface RadarCanvasProps {
   currentFrame?: FrameRecord;
   width?: number;
   height?: number;
+  showVoronoi?: boolean;
 }
 
 export const RadarCanvas: React.FC<RadarCanvasProps> = ({
   currentFrame,
   width = 280,
   height = 500,
+  showVoronoi = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shuttleTrailRef = useRef<Array<{ x: number; y: number; time: number }>>([]);
@@ -49,6 +51,39 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
       courtGrad.addColorStop(1, "#131b26");
       ctx.fillStyle = courtGrad;
       ctx.fillRect(x0, y0, courtW, courtH);
+
+      // Voronoi Court Control Shading (if enabled)
+      if (showVoronoi && currentFrame && currentFrame.players && currentFrame.players.length >= 2) {
+        const p1 = currentFrame.players.find((p) => p.player_id === 1);
+        const p2 = currentFrame.players.find((p) => p.player_id === 2);
+        if (p1 && p2) {
+          const p1x = x0 + Math.max(0.05, Math.min(0.95, p1.x_norm)) * courtW;
+          const p1y = y0 + Math.max(0.05, Math.min(0.95, p1.y_norm)) * courtH;
+          const p2x = x0 + Math.max(0.05, Math.min(0.95, p2.x_norm)) * courtW;
+          const p2y = y0 + Math.max(0.05, Math.min(0.95, p2.y_norm)) * courtH;
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x0, y0, courtW, courtH);
+          ctx.clip();
+
+          // P1 Dominance Gradient
+          const g1 = ctx.createRadialGradient(p1x, p1y, 10, p1x, p1y, courtH * 0.7);
+          g1.addColorStop(0, "rgba(0, 229, 255, 0.28)");
+          g1.addColorStop(1, "rgba(0, 229, 255, 0.02)");
+          ctx.fillStyle = g1;
+          ctx.fillRect(x0, y0, courtW, courtH);
+
+          // P2 Dominance Gradient
+          const g2 = ctx.createRadialGradient(p2x, p2y, 10, p2x, p2y, courtH * 0.7);
+          g2.addColorStop(0, "rgba(255, 145, 0, 0.28)");
+          g2.addColorStop(1, "rgba(255, 145, 0, 0.02)");
+          ctx.fillStyle = g2;
+          ctx.fillRect(x0, y0, courtW, courtH);
+
+          ctx.restore();
+        }
+      }
 
       // Court Outer Boundary
       ctx.strokeStyle = "#374151";

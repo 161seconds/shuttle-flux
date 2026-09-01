@@ -43,6 +43,19 @@ def smooth_court_trajectory(
     return np.column_stack((smoothed_x, smoothed_y))
 
 
+def compute_smoothed_positions(positions: np.ndarray, window_size: int = 5) -> np.ndarray:
+    """Applies sliding window smoothing filter to positions array."""
+    return smooth_court_trajectory(positions, window_size)
+
+
+def compute_player_distance(positions_meters: np.ndarray) -> float:
+    """Calculates cumulative Euclidean distance across metric coordinate points."""
+    if len(positions_meters) < 2:
+        return 0.0
+    diffs = np.diff(positions_meters, axis=0)
+    return float(np.sum(np.sqrt(np.sum(diffs**2, axis=1))))
+
+
 def compute_distance_meters(
     positions_norm: np.ndarray, is_doubles: bool = False
 ) -> float:
@@ -126,3 +139,45 @@ def compute_zone_occupancy(positions_norm: np.ndarray) -> Dict[str, float]:
         counts[zone] = counts.get(zone, 0) + 1
 
     return {zone: round((cnt / total) * 100.0, 2) for zone, cnt in counts.items()}
+
+
+def compute_voronoi_court_control(
+    p1_positions: np.ndarray, p2_positions: np.ndarray
+) -> Dict[str, float]:
+    """
+    Calculates the percentage of court space dominated by Player 1 vs Player 2
+    using Voronoi spatial distance partitioning on a 20x40 sampling grid.
+    """
+    if len(p1_positions) == 0 or len(p2_positions) == 0:
+        return {"player_1_control_pct": 50.0, "player_2_control_pct": 50.0}
+
+    # Generate sampling grid over court [0, 1] x [0, 1]
+    gx, gy = np.meshgrid(np.linspace(0, 1, 20), np.linspace(0, 1, 40))
+    grid_pts = np.column_stack((gx.ravel(), gy.ravel()))
+
+    p1_wins = 0
+    p2_wins = 0
+
+    n_samples = min(len(p1_positions), len(p2_positions))
+    # Step through every 5 frames for fast execution
+    for i in range(0, n_samples, 5):
+        pt1 = p1_positions[i]
+        pt2 = p2_positions[i]
+
+        d1 = np.sum((grid_pts - pt1) ** 2, axis=1)
+        d2 = np.sum((grid_pts - pt2) ** 2, axis=1)
+
+        p1_wins += int(np.sum(d1 < d2))
+        p2_wins += int(np.sum(d2 <= d1))
+
+    total = p1_wins + p2_wins
+    if total == 0:
+        return {"player_1_control_pct": 50.0, "player_2_control_pct": 50.0}
+
+    p1_pct = round((p1_wins / total) * 100.0, 1)
+    p2_pct = round(100.0 - p1_pct, 1)
+
+    return {
+        "player_1_control_pct": p1_pct,
+        "player_2_control_pct": p2_pct,
+    }
