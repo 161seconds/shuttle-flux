@@ -7,3 +7,5 @@ python-multipart>=0.0.9
 redis>=5.0.0
 aiofiles>=23.2.1
 pydantic-settings>=2.2.1
+yt-dlp>=2024.3.10
+

@@ -12,6 +12,7 @@ import {
   MatchAnalytics,
   ProcessingStatus,
   uploadVideo,
+  analyzeYouTubeUrl,
   getProcessingStatus,
   getMatchAnalytics,
   createDemoMatch,
@@ -36,6 +37,8 @@ export default function Home() {
           if (status.status === "completed") {
             const data = await getMatchAnalytics(activeMatchId);
             setAnalytics(data);
+          } else if (status.status === "failed") {
+            alert(`Processing failed: ${status.error_message || "Unknown error"}`);
           }
         } catch (e) {
           console.error("Polling error:", e);
@@ -58,6 +61,24 @@ export default function Home() {
       });
     } catch (err: any) {
       alert(`Upload error: ${err.message}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleYouTubeSubmit = async (url: string) => {
+    try {
+      setIsUploading(true);
+      const res = await analyzeYouTubeUrl(url);
+      setActiveMatchId(res.match_id);
+      setProcessingStatus({
+        match_id: res.match_id,
+        status: "processing",
+        progress_percentage: 5,
+        current_stage: "downloading_youtube",
+      });
+    } catch (err: any) {
+      alert(`YouTube Ingestion Error: ${err.message}`);
     } finally {
       setIsUploading(false);
     }
@@ -100,6 +121,7 @@ export default function Home() {
         {!analytics ? (
           <UploadSection
             onFileUpload={handleFileUpload}
+            onYouTubeSubmit={handleYouTubeSubmit}
             processingStatus={processingStatus}
             isUploading={isUploading}
           />

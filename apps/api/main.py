@@ -19,12 +19,14 @@ if WORKSPACE_ROOT not in sys.path:
     sys.path.insert(0, WORKSPACE_ROOT)
 
 from apps.api.models import (
+    YouTubeUploadRequest,
     MatchUploadResponse,
     ProcessingStatusResponse,
     MatchAnalyticsResponse,
 )
 from apps.api.storage import (
     save_uploaded_video,
+    register_youtube_match,
     get_match_info,
     get_job_status,
     get_analytics_result,
@@ -47,6 +49,43 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_path: str):
+    """Downloads YouTube video stream via yt-dlp then starts ML pipeline."""
+    try:
+        update_job_status(
+            match_id=match_id,
+            status="processing",
+            progress=5,
+            stage="downloading_youtube",
+        )
+        import yt_dlp
+
+        # Download best mp4 video stream up to 1080p for fast inference
+        ydl_opts = {
+            "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "outtmpl": target_video_path,
+            "quiet": True,
+            "no_warnings": True,
+            "overwrites": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+
+        if not os.path.exists(target_video_path):
+            raise FileNotFoundError(f"Downloaded video file not found at {target_video_path}")
+
+        # Continue with CV / ML analytics pipeline
+        process_video_pipeline(match_id, target_video_path)
+    except Exception as e:
+        update_job_status(
+            match_id=match_id,
+            status="failed",
+            progress=0,
+            stage="downloading_youtube",
+            error=f"Failed to download YouTube video: {str(e)}",
+        )
 
 
 @app.get("/")
@@ -87,6 +126,43 @@ async def upload_match_video(
         match_id=match_id,
         filename=file.filename,
         status="queued",
+        created_at=get_match_info(match_id)["created_at"],
+    )
+
+
+@app.post("/api/v1/matches/youtube", response_model=MatchUploadResponse)
+async def ingest_youtube_match(
+    payload: YouTubeUploadRequest,
+    background_tasks: BackgroundTasks,
+):
+    """Ingests a badminton match from a YouTube URL and runs analysis."""
+    url = payload.url.strip()
+    if not ("youtube.com" in url or "youtu.be" in url):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid YouTube URL. Please provide a valid youtube.com or youtu.be link.",
+        )
+
+    match_id = str(uuid.uuid4())[:8]
+    video_path = register_youtube_match(match_id, url)
+    update_job_status(
+        match_id=match_id,
+        status="processing",
+        progress=2,
+        stage="downloading_youtube",
+    )
+
+    background_tasks.add_task(
+        process_youtube_download_and_pipeline,
+        match_id,
+        url,
+        video_path,
+    )
+
+    return MatchUploadResponse(
+        match_id=match_id,
+        filename=f"YouTube: {url}",
+        status="processing",
         created_at=get_match_info(match_id)["created_at"],
     )
 

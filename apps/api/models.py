@@ -7,6 +7,10 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 
+class YouTubeUploadRequest(BaseModel):
+    url: str
+
+
 class MatchUploadResponse(BaseModel):
     match_id: str
     filename: str

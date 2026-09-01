@@ -44,3 +44,17 @@ def test_api_demo_match():
     rallies_res = client.get(f"/api/v1/matches/{match_id}/rallies")
     assert rallies_res.status_code == 200
     assert len(rallies_res.json()) == 3
+
+
+def test_api_youtube_endpoint_validation():
+    # Test invalid URL
+    invalid_res = client.post("/api/v1/matches/youtube", json={"url": "https://invalid-domain.com/video"})
+    assert invalid_res.status_code == 400
+
+    # Test valid format URL acceptance
+    valid_res = client.post("/api/v1/matches/youtube", json={"url": "https://www.youtube.com/watch?v=sample123"})
+    assert valid_res.status_code == 200
+    data = valid_res.json()
+    assert "match_id" in data
+    assert data["status"] == "processing"
+

@@ -6,7 +6,7 @@ Handles saving video files, caching JSON match analytics, and tracking job state
 import os
 import json
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 STORAGE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "storage")
@@ -33,7 +33,20 @@ def save_uploaded_video(match_id: str, filename: str, content: bytes) -> str:
         "match_id": match_id,
         "filename": filename,
         "video_path": target_path,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "queued",
+    }
+    return target_path
+
+
+def register_youtube_match(match_id: str, url: str) -> str:
+    """Registers a YouTube match and returns target destination path."""
+    target_path = os.path.join(MATCHES_DIR, f"{match_id}.mp4")
+    _MATCH_REGISTRY[match_id] = {
+        "match_id": match_id,
+        "filename": f"YouTube: {url}",
+        "video_path": target_path,
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "status": "queued",
     }
     return target_path
@@ -54,7 +67,7 @@ def update_job_status(
     if match_id not in _JOB_REGISTRY:
         _JOB_REGISTRY[match_id] = {
             "match_id": match_id,
-            "started_at": datetime.utcnow().isoformat(),
+            "started_at": datetime.now(timezone.utc).isoformat(),
         }
 
     _JOB_REGISTRY[match_id].update(
@@ -66,7 +79,7 @@ def update_job_status(
         }
     )
     if status == "completed":
-        _JOB_REGISTRY[match_id]["completed_at"] = datetime.utcnow().isoformat()
+        _JOB_REGISTRY[match_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
         if match_id in _MATCH_REGISTRY:
             _MATCH_REGISTRY[match_id]["status"] = "completed"
 
