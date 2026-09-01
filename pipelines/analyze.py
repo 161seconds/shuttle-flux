@@ -3,7 +3,7 @@ End-to-End Match Analytics Pipeline:
 Aggregates transformed frame tracking data into complete match statistics, player profiles, rallies, and heatmaps.
 """
 
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
 from analytics.movement import (
     smooth_court_trajectory,
@@ -22,6 +22,7 @@ def run_full_analytics(
     fps: float,
     match_metadata: Dict[str, Any],
     is_doubles: bool = False,
+    player_names: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Computes complete match analytics from calibrated tracking frame records.
@@ -82,6 +83,10 @@ def run_full_analytics(
     for p_id in [1, 2]:
         raw_traj = player_trajectories[p_id]
         control_pct = voronoi_control.get(f"player_{p_id}_control_pct", 50.0)
+        p_label = "VĐV 1 (Gần)" if p_id == 1 else "VĐV 2 (Xa)"
+        if player_names:
+            p_label = player_names.get(f"player_{p_id}_name", p_label)
+
         if raw_traj:
             smoothed_traj = smooth_court_trajectory(raw_traj, window_size=5)
             speed_profile = compute_speed_profile(smoothed_traj, fps=fps, is_doubles=is_doubles)
@@ -90,8 +95,8 @@ def run_full_analytics(
 
             player_stats[f"player_{p_id}"] = {
                 "player_id": p_id,
-                "label": f"Player {p_id}",
-                "side": "Near Court (Bottom)" if p_id == 1 else "Far Court (Top)",
+                "label": p_label,
+                "side": "Sân Gần (Nửa Dưới)" if p_id == 1 else "Sân Xa (Bên Kia Lưới)",
                 "distance_meters": speed_profile["total_distance_m"],
                 "avg_speed_mps": speed_profile["avg_speed_mps"],
                 "max_speed_mps": speed_profile["max_speed_mps"],
@@ -103,7 +108,8 @@ def run_full_analytics(
         else:
             player_stats[f"player_{p_id}"] = {
                 "player_id": p_id,
-                "label": f"Player {p_id}",
+                "label": p_label,
+                "side": "Sân Gần (Nửa Dưới)" if p_id == 1 else "Sân Xa (Bên Kia Lưới)",
                 "distance_meters": 0.0,
                 "avg_speed_mps": 0.0,
                 "max_speed_mps": 0.0,

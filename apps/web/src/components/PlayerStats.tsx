@@ -10,6 +10,19 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({ analytics }) => {
   const p1 = analytics.players.player_1;
   const p2 = analytics.players.player_2;
 
+  const translateZone = (zone: string) => {
+    const clean = zone.replace(/^P[12]_/, "").toLowerCase();
+    const map: Record<string, string> = {
+      rear_left: "Cuối sân (Trái)",
+      rear_right: "Cuối sân (Phải)",
+      mid_left: "Giữa sân (Trái)",
+      mid_right: "Giữa sân (Phải)",
+      front_left: "Trên lưới (Trái)",
+      front_right: "Trên lưới (Phải)",
+    };
+    return map[clean] || clean.toUpperCase();
+  };
+
   const renderPlayerCard = (p: PlayerStatsData, color: string, border: string, badge: string) => {
     return (
       <div className={`glass-panel rounded-2xl p-6 border ${border} shadow-xl flex-1`}>
@@ -24,7 +37,7 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({ analytics }) => {
             </div>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 rounded bg-surface border border-gray-700 text-gray-300">
-            Active: {p.active_time_seconds}s
+            Di chuyển: {p.active_time_seconds}s
           </span>
         </div>
 
@@ -57,22 +70,21 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({ analytics }) => {
         {/* Tactical Zone Occupancy */}
         <div className="mt-4 pt-3 border-t border-gray-800">
           <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">
-            Tactical Court Zone Occupancy
+            Tỷ Lệ Chiếm Lĩnh Phân Vùng Sân
           </span>
           <div className="space-y-2">
             {Object.entries(p.zone_occupancy || {}).map(([zone, pct]) => {
-              const cleanZoneName = zone.replace(/^P[12]_/, "").replace("_", " ").toUpperCase();
               return (
                 <div key={zone} className="text-xs">
                   <div className="flex justify-between text-gray-300 mb-1">
-                    <span>{cleanZoneName}</span>
+                    <span>{translateZone(zone)}</span>
                     <span className="font-mono">{pct}%</span>
                   </div>
-                  <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                  <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${color}`}
-                      style={{ width: `${Math.min(100, pct * 2)}%` }}
-                    ></div>
+                      className={`h-1.5 rounded-full ${color}`}
+                      style={{ width: `${Math.min(100, pct * 2.5)}%` }}
+                    />
                   </div>
                 </div>
               );
@@ -84,14 +96,25 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({ analytics }) => {
   };
 
   return (
-    <div className="my-8">
-      <div className="flex items-center space-x-2 mb-4">
-        <Activity className="w-5 h-5 text-brand-cyan" />
-        <h3 className="font-bold text-lg text-white">Player Movement & Performance Profile</h3>
+    <div className="mb-8">
+      <div className="flex items-center space-x-2.5 mb-4">
+        <User className="w-5 h-5 text-brand-cyan" />
+        <h3 className="font-bold text-lg text-white">Chỉ Số Hiệu Suất Vận Động Viên</h3>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {renderPlayerCard(p1, "bg-brand-cyan", "border-cyan-500/30", "bg-brand-cyan")}
-        {renderPlayerCard(p2, "bg-brand-amber", "border-amber-500/30", "bg-brand-amber")}
+
+      <div className="flex flex-col lg:flex-row gap-6">
+        {renderPlayerCard(
+          p1,
+          "bg-cyan-400",
+          "border-cyan-500/40",
+          "bg-brand-cyan text-black"
+        )}
+        {renderPlayerCard(
+          p2,
+          "bg-amber-400",
+          "border-amber-500/40",
+          "bg-brand-amber text-black"
+        )}
       </div>
     </div>
   );

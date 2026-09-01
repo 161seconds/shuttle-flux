@@ -13,8 +13,12 @@ import {
   EyeOff,
   Sparkles,
   Layers,
+  Edit3,
+  Check,
+  X,
+  UserCheck,
 } from "lucide-react";
-import { MatchAnalytics, FrameRecord, API_BASE_URL } from "../lib/api";
+import { MatchAnalytics, FrameRecord, API_BASE_URL, updatePlayerNames } from "../lib/api";
 import { RadarCanvas } from "./RadarCanvas";
 
 interface VideoPlayerWithRadarProps {
@@ -38,12 +42,53 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   const [isMuted, setIsMuted] = useState(true);
   const [videoError, setVideoError] = useState(false);
 
+  // Player Names State (Auto-extracted via OCR or manually edited)
+  const [p1Name, setP1Name] = useState(
+    analytics.players?.player_1?.label || "VĐV 1 (Gần)"
+  );
+  const [p2Name, setP2Name] = useState(
+    analytics.players?.player_2?.label || "VĐV 2 (Xa)"
+  );
+  const [isEditingNames, setIsEditingNames] = useState(false);
+  const [p1Input, setP1Input] = useState(p1Name);
+  const [p2Input, setP2Input] = useState(p2Name);
+  const [isSavingNames, setIsSavingNames] = useState(false);
+
   const rawVideoRef = useRef<HTMLVideoElement>(null);
   const aiVideoRef = useRef<HTMLVideoElement>(null);
 
   const frameRecords = analytics.frame_records || [];
   const matchId = analytics.metadata.match_id;
   const videoSrc = `${API_BASE_URL}/api/v1/matches/${matchId}/video`;
+
+  // Update names if analytics changes
+  useEffect(() => {
+    if (analytics.players?.player_1?.label) {
+      setP1Name(analytics.players.player_1.label);
+      setP1Input(analytics.players.player_1.label);
+    }
+    if (analytics.players?.player_2?.label) {
+      setP2Name(analytics.players.player_2.label);
+      setP2Input(analytics.players.player_2.label);
+    }
+  }, [analytics]);
+
+  const handleSaveNames = async () => {
+    try {
+      setIsSavingNames(true);
+      await updatePlayerNames(matchId, p1Input, p2Input);
+      setP1Name(p1Input);
+      setP2Name(p2Input);
+      setIsEditingNames(false);
+    } catch (err) {
+      console.error("Failed to save player names:", err);
+      setP1Name(p1Input);
+      setP2Name(p2Input);
+      setIsEditingNames(false);
+    } finally {
+      setIsSavingNames(false);
+    }
+  };
 
   // Format seconds to MM:SS or MM:SS.t
   const formatTime = (seconds: number) => {
@@ -84,7 +129,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   // Sync volume / muted
   useEffect(() => {
     if (rawVideoRef.current) rawVideoRef.current.muted = isMuted;
-    if (aiVideoRef.current) aiVideoRef.current.muted = true; // Always mute AI video replica to prevent echo
+    if (aiVideoRef.current) aiVideoRef.current.muted = true;
   }, [isMuted]);
 
   // 60 FPS High-performance Animation Loop directly reading video hardware time
@@ -163,16 +208,39 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
 
   return (
     <div className="glass-panel rounded-2xl p-6 border border-gray-700 shadow-2xl mb-8">
-      {/* Header Bar with View Controls */}
+      {/* Header Bar with View Controls & Player Names */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-5 border-b border-gray-800 pb-4">
         <div className="flex items-center space-x-3">
           <Activity className="w-5 h-5 text-brand-cyan" />
-          <h3 className="font-bold text-lg text-white">
-            Trình Xem Trận Đấu & Radar Đồng Bộ Thời Gian Thực
-          </h3>
+          <div>
+            <h3 className="font-bold text-lg text-white">
+              Trình Xem Trận Đấu & Radar Đồng Bộ Thời Gian Thực
+            </h3>
+            <p className="text-xs text-gray-400">
+              Nhận diện OCR bảng điểm & Khóa định danh vận động viên
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center flex-wrap gap-2">
+          {/* Edit Athlete Names Button */}
+          <button
+            onClick={() => {
+              setIsEditingNames(!isEditingNames);
+              setP1Input(p1Name);
+              setP2Input(p2Name);
+            }}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+              isEditingNames
+                ? "bg-amber-950/70 border-amber-500 text-amber-300 shadow-sm shadow-amber-500/30"
+                : "bg-surface border-gray-700 text-gray-300 hover:text-white hover:border-gray-500"
+            }`}
+            title="Đổi tên vận động viên trên Video và Bảng điểm"
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span>Đổi tên VĐV</span>
+          </button>
+
           {/* Mode Switcher: Dual vs Single */}
           <div className="flex items-center bg-surface-light p-1 rounded-xl border border-gray-800">
             <button
@@ -227,6 +295,64 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Edit Player Names Inline Modal / Banner */}
+      {isEditingNames && (
+        <div className="mb-5 p-4 rounded-xl bg-surface-light border border-amber-500/50 shadow-2xl flex flex-wrap items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs">
+            <UserCheck className="w-4 h-4" />
+            <span>Gán Tên & Quốc Gia Cho 2 Vận Động Viên (Cập nhật trực tiếp lên Video & Radar):</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 flex-1">
+            {/* P1 Input */}
+            <div className="flex items-center space-x-2 bg-black/60 px-3 py-1.5 rounded-lg border border-cyan-500/40 flex-1 min-w-[200px]">
+              <span className="text-[11px] font-extrabold text-cyan-400 whitespace-nowrap">
+                P1 (Gần):
+              </span>
+              <input
+                type="text"
+                value={p1Input}
+                onChange={(e) => setP1Input(e.target.value)}
+                placeholder="Ví dụ: K. Naraoka (JPN)"
+                className="bg-transparent text-xs text-white focus:outline-none w-full font-medium"
+              />
+            </div>
+
+            {/* P2 Input */}
+            <div className="flex items-center space-x-2 bg-black/60 px-3 py-1.5 rounded-lg border border-amber-500/40 flex-1 min-w-[200px]">
+              <span className="text-[11px] font-extrabold text-amber-400 whitespace-nowrap">
+                P2 (Xa):
+              </span>
+              <input
+                type="text"
+                value={p2Input}
+                onChange={(e) => setP2Input(e.target.value)}
+                placeholder="Ví dụ: Shi Yuqi (CHN)"
+                className="bg-transparent text-xs text-white focus:outline-none w-full font-medium"
+              />
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleSaveNames}
+              disabled={isSavingNames}
+              className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center space-x-1.5 shadow-md shadow-emerald-500/20 active:scale-95 transition-all"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>{isSavingNames ? "Đang lưu..." : "Lưu tên"}</span>
+            </button>
+            <button
+              onClick={() => setIsEditingNames(false)}
+              className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Dual Player / Single Player Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -334,7 +460,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                           ? "bg-cyan-500 text-black font-extrabold"
                           : "bg-amber-500 text-black font-extrabold";
                         const confText = p.confidence ? `${Math.round(p.confidence * 100)}%` : "94%";
-                        const labelText = isP1 ? "VĐV 1 (Gần)" : "VĐV 2 (Xa)";
+                        const displayName = isP1 ? p1Name : p2Name;
 
                         return (
                           <div
@@ -346,7 +472,9 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                               <span className={`text-[9px] px-1 py-0.2 rounded ${badgeBg}`}>
                                 P{p.player_id}
                               </span>
-                              <span className="text-[9px] font-bold text-gray-200">{labelText}</span>
+                              <span className="text-[9px] font-bold text-gray-100 max-w-[110px] truncate">
+                                {displayName}
+                              </span>
                               <span className="text-[8px] opacity-75">{confText}</span>
                             </div>
                             {/* Pulsing Foot Anchor Point */}
@@ -482,13 +610,13 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
 
           <div className="w-full mt-3 pt-2.5 border-t border-gray-800/80 flex flex-col space-y-1.5 text-[11px] text-gray-300">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-1.5">
-                <div className="w-2.5 h-2.5 rounded-full bg-brand-cyan shadow-sm shadow-cyan-400" />
-                <span>VĐV 1 (Gần - Cyan)</span>
+              <div className="flex items-center space-x-1.5 max-w-[120px] truncate">
+                <div className="w-2.5 h-2.5 rounded-full bg-brand-cyan shadow-sm shadow-cyan-400 flex-shrink-0" />
+                <span className="truncate">{p1Name}</span>
               </div>
-              <div className="flex items-center space-x-1.5">
-                <div className="w-2.5 h-2.5 rounded-full bg-brand-amber shadow-sm shadow-amber-400" />
-                <span>VĐV 2 (Xa - Cam)</span>
+              <div className="flex items-center space-x-1.5 max-w-[120px] truncate">
+                <div className="w-2.5 h-2.5 rounded-full bg-brand-amber shadow-sm shadow-amber-400 flex-shrink-0" />
+                <span className="truncate">{p2Name}</span>
               </div>
             </div>
             <div className="flex items-center space-x-1.5 text-gray-400 text-[10px]">

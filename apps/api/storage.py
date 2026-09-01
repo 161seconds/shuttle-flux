@@ -130,6 +130,20 @@ def get_analytics_result(match_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def update_player_names(match_id: str, p1_name: str, p2_name: str) -> Optional[Dict[str, Any]]:
+    """Updates player names in saved match analytics JSON."""
+    analytics = get_analytics_result(match_id)
+    if analytics:
+        if "players" in analytics:
+            if "player_1" in analytics["players"]:
+                analytics["players"]["player_1"]["label"] = p1_name
+            if "player_2" in analytics["players"]:
+                analytics["players"]["player_2"]["label"] = p2_name
+        save_analytics_result(match_id, analytics)
+        return analytics
+    return None
+
+
 def list_all_matches() -> list:
     return list(_MATCH_REGISTRY.values())
 

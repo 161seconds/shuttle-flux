@@ -21,6 +21,7 @@ from pipelines.track import TrackingPipeline
 from pipelines.analyze import run_full_analytics
 from pipelines.render import render_annotated_frame, render_2d_radar_court
 from apps.api.storage import update_job_status, save_analytics_result, is_job_cancelled
+from ml.ocr.scoreboard_reader import ScoreboardReader
 
 
 def process_video_pipeline(match_id: str, video_path: str):
@@ -28,7 +29,7 @@ def process_video_pipeline(match_id: str, video_path: str):
     Executes the 6-step Badminton AI CV Pipeline:
     1. Preprocessing (Metadata & Validation)
     2. Court Calibration (Homography Matrix)
-    3. Detection & Tracking (Players + Shuttlecock)
+    3. Detection & Tracking (Players + Shuttlecock) + Scoreboard OCR
     4. Coordinate Transformation (Camera -> 2D Court)
     5. Analytics Engine (Movement, Heatmaps, Rallies, Shots)
     6. Persistence & Completion
@@ -63,11 +64,13 @@ def process_video_pipeline(match_id: str, video_path: str):
         if is_job_cancelled(match_id):
             return
 
-        # Step 3: Detection & Tracking
+        # Step 3: Detection & Tracking + Scoreboard OCR
         update_job_status(match_id, status="processing", progress=50, stage="detection_and_tracking")
         detector = DetectionPipeline()
         tracker = TrackingPipeline()
+        scoreboard_reader = ScoreboardReader()
 
+        extracted_names = {"player_1_name": "VĐV 1 (Gần)", "player_2_name": "VĐV 2 (Xa)", "source": "default"}
         frame_records = []
         frame_count = 0
 
@@ -88,6 +91,17 @@ def process_video_pipeline(match_id: str, video_path: str):
             # Run tracking
             tracked = tracker.update(raw_dets, frame_idx, timestamp)
 
+            # Scoreboard & Jersey OCR scan on early frames
+            if frame_count < 20 and extracted_names.get("source") == "default":
+                try:
+                    near_box = tracked.get("players", [{}])[0].get("bbox") if tracked.get("players") else None
+                    ocr_res = scoreboard_reader.extract_player_names_from_frame(frame, near_player_bbox=near_box)
+                    if ocr_res.get("source") != "default":
+                        extracted_names = ocr_res
+                        print(f"[Worker OCR] Extracted player names: {extracted_names}")
+                except Exception as ocr_err:
+                    print(f"[Worker OCR Warning] {ocr_err}")
+
             # Step 4: Transform to 2D court coordinates
             h, w, _ = frame.shape
             transformed_players = []
@@ -98,6 +112,13 @@ def process_video_pipeline(match_id: str, video_path: str):
                 p_copy = dict(p)
                 p_copy["x_norm"] = round(float(court_pt[0, 0]), 4)
                 p_copy["y_norm"] = round(float(court_pt[0, 1]), 4)
+
+                # Assign OCR extracted name
+                p_id = p_copy.get("player_id", 1)
+                if p_id == 1:
+                    p_copy["label"] = extracted_names.get("player_1_name", "VĐV 1 (Gần)")
+                else:
+                    p_copy["label"] = extracted_names.get("player_2_name", "VĐV 2 (Xa)")
 
                 # Normalized bounding box coordinates for exact video overlay
                 bbox = p.get("bbox", [0, 0, 0, 0])
@@ -153,6 +174,7 @@ def process_video_pipeline(match_id: str, video_path: str):
             fps=fps,
             match_metadata={"match_id": match_id, "video_metadata": metadata},
             is_doubles=False,
+            player_names=extracted_names,
         )
 
         update_job_status(match_id, status="processing", progress=95, stage="completed")

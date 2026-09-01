@@ -9,6 +9,7 @@ import uuid
 import math
 import numpy as np
 from typing import List, Optional
+from pydantic import BaseModel
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -397,3 +398,18 @@ async def cleanup_video_storage(keep_latest_n: int = 1):
         "message": f"Freed {res['freed_mb']} MB of disk space ({res['deleted_count']} video files cleaned).",
         "details": res,
     }
+
+
+class UpdatePlayerNamesRequest(BaseModel):
+    player_1_name: str
+    player_2_name: str
+
+
+@app.put("/api/v1/matches/{match_id}/players")
+async def update_match_player_names(match_id: str, req: UpdatePlayerNamesRequest):
+    """Updates custom player names for a match."""
+    from apps.api.storage import update_player_names
+    updated = update_player_names(match_id, req.player_1_name, req.player_2_name)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Match analytics not found.")
+    return {"status": "success", "analytics": updated}
