@@ -7,9 +7,6 @@ interface PlayerStatsProps {
 }
 
 export const PlayerStats: React.FC<PlayerStatsProps> = ({ analytics }) => {
-  const p1 = analytics.players.player_1;
-  const p2 = analytics.players.player_2;
-
   const translateZone = (zone: string) => {
     const clean = zone.replace(/^P[12]_/, "").toLowerCase();
     const map: Record<string, string> = {
@@ -95,26 +92,25 @@ export const PlayerStats: React.FC<PlayerStatsProps> = ({ analytics }) => {
     );
   };
 
+  const p1 = analytics.players.player_1;
+  const p2 = analytics.players.player_2;
+  const p3 = analytics.players.player_3;
+  const p4 = analytics.players.player_4;
+
   return (
     <div className="mb-8">
       <div className="flex items-center space-x-2.5 mb-4">
         <User className="w-5 h-5 text-brand-cyan" />
-        <h3 className="font-bold text-lg text-white">Chỉ Số Hiệu Suất Vận Động Viên</h3>
+        <h3 className="font-bold text-lg text-white">
+          Chỉ Số Hiệu Suất Vận Động Viên ({p3 || p4 ? "Đôi 2v2" : "Đơn 1v1"})
+        </h3>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6">
-        {renderPlayerCard(
-          p1,
-          "bg-cyan-400",
-          "border-cyan-500/40",
-          "bg-brand-cyan text-black"
-        )}
-        {renderPlayerCard(
-          p2,
-          "bg-amber-400",
-          "border-amber-500/40",
-          "bg-brand-amber text-black"
-        )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {p1 && renderPlayerCard(p1, "bg-cyan-400", "border-cyan-500/40", "bg-cyan-400 text-black")}
+        {p2 && renderPlayerCard(p2, "bg-amber-400", "border-amber-500/40", "bg-amber-400 text-black")}
+        {p3 && renderPlayerCard(p3, "bg-sky-400", "border-sky-500/40", "bg-sky-400 text-black")}
+        {p4 && renderPlayerCard(p4, "bg-orange-400", "border-orange-500/40", "bg-orange-400 text-black")}
       </div>
     </div>
   );

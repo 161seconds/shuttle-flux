@@ -1,7 +1,8 @@
 """
 Player Detection Module:
-Wraps Ultralytics YOLO with strict court trapezoid geometry filtering for badminton singles.
-Filters out umpires, line judges, coaches, and audience seated outside the playing corridor.
+Wraps Ultralytics YOLO with strict court trapezoid geometry filtering for badminton singles & doubles.
+Detects up to 4 active players (2v2 Doubles) or 2 active players (1v1 Singles),
+strictly discarding referees/umpires on the left/right sidelines.
 """
 
 from typing import List, Dict, Any, Optional
@@ -25,8 +26,8 @@ class PlayerDetector:
     def detect(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         """
         Detects players in frame.
-        Filters specifically for the 2 active badminton players on court (Near P1 and Far P2),
-        strictly discarding referees/umpires on the left/right sidelines.
+        Supports both 1v1 Singles (2 players) and 2v2 Doubles (up to 4 players).
+        Filters strictly for on-court players inside the playing corridor.
         """
         h, w, _ = frame.shape
         if self.model is not None:
@@ -78,31 +79,36 @@ class PlayerDetector:
                 )
 
             if raw_detections:
-                # Near Court player is in foreground (y_bottom >= 0.58 * h)
+                # Near Court players (y_bottom >= 0.58 * h)
                 near_candidates = [d for d in raw_detections if d["bottom_center"][1] >= h * 0.58]
-                # Far Court player is across the net (0.35 * h <= y_bottom < 0.60 * h)
+                # Far Court players (0.35 * h <= y_bottom < 0.60 * h)
                 far_candidates = [d for d in raw_detections if 0.35 * h <= d["bottom_center"][1] < 0.60 * h]
 
-                chosen = []
-                # 1. Pick Near player (P1 - Cyan)
-                if near_candidates:
-                    # Central player on near court
-                    best_near = max(
-                        near_candidates,
-                        key=lambda d: d["box_area"] * (1.0 - abs(d["bottom_center"][0] / w - 0.5) * 0.4),
-                    )
-                    best_near["role"] = "near"
-                    chosen.append(best_near)
+                # Sort near candidates by box area & centrality
+                near_candidates.sort(
+                    key=lambda d: d["box_area"] * (1.0 - abs(d["bottom_center"][0] / w - 0.5) * 0.3),
+                    reverse=True,
+                )
+                # Sort far candidates by confidence & box height
+                far_candidates.sort(
+                    key=lambda d: d["confidence"] * d["box_h"] * (1.0 - abs(d["bottom_center"][0] / w - 0.5) * 0.4),
+                    reverse=True,
+                )
 
-                # 2. Pick Far player (P2 - Amber)
-                if far_candidates:
-                    # Central player on far court
-                    best_far = max(
-                        far_candidates,
-                        key=lambda d: d["confidence"] * d["box_h"] * (1.0 - abs(d["bottom_center"][0] / w - 0.5) * 0.6),
-                    )
-                    best_far["role"] = "far"
-                    chosen.append(best_far)
+                chosen = []
+                # Keep up to 2 near players (Team 1)
+                for i, nc in enumerate(near_candidates[:2]):
+                    nc_copy = dict(nc)
+                    nc_copy["role"] = "near"
+                    nc_copy["rank"] = i + 1
+                    chosen.append(nc_copy)
+
+                # Keep up to 2 far players (Team 2)
+                for j, fc in enumerate(far_candidates[:2]):
+                    fc_copy = dict(fc)
+                    fc_copy["role"] = "far"
+                    fc_copy["rank"] = j + 1
+                    chosen.append(fc_copy)
 
                 if chosen:
                     return chosen
@@ -114,6 +120,7 @@ class PlayerDetector:
                 "confidence": 0.95,
                 "bottom_center": [w * 0.50, h * 0.92],
                 "role": "near",
+                "rank": 1,
                 "class": "player",
             },
             {
@@ -121,6 +128,7 @@ class PlayerDetector:
                 "confidence": 0.92,
                 "bottom_center": [w * 0.49, h * 0.56],
                 "role": "far",
+                "rank": 1,
                 "class": "player",
             },
         ]

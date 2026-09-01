@@ -1,132 +1,145 @@
 """
 Player Tracking Module:
-Maintains permanent, stable Player IDs (P1 = Near Court, P2 = Far Court) across all video frames
-with smooth bounding box temporal interpolation and zero ID flipping.
+Maintains permanent, stable Player IDs across all video frames for both:
+1. Singles (1v1): P1 (Near Court), P2 (Far Court)
+2. Doubles (2v2): P1 & P3 (Team 1 - Near Court), P2 & P4 (Team 2 - Far Court)
+Features smooth bounding box temporal interpolation and zero ID flipping.
 """
 
 from typing import List, Dict, Any, Optional
+import numpy as np
 
 
 class PlayerTracker:
     def __init__(self, smoothing_alpha: float = 0.45):
         self.smoothing_alpha = smoothing_alpha
-        # Permanent tracks for P1 (Near Court) and P2 (Far Court)
-        self.p1_track: Optional[Dict[str, Any]] = None
-        self.p2_track: Optional[Dict[str, Any]] = None
-        self.p1_missing = 0
-        self.p2_missing = 0
+        # Permanent tracks dictionary: 1: P1, 2: P2, 3: P3, 4: P4
+        self.tracks: Dict[int, Dict[str, Any]] = {}
+        self.missing_counts: Dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0}
         self.max_hold_frames = 15
+        self.detected_doubles_frames = 0
+        self.total_frames_tracked = 0
+        self.is_doubles_mode = False
 
     def update(self, detections: List[Dict[str, Any]], frame_idx: int) -> List[Dict[str, Any]]:
         """
-        Associates detections with permanent P1 and P2 tracks.
-        P1 is strictly locked to Near Court (lower half), P2 to Far Court (upper half).
+        Associates detections with permanent Player tracks.
+        Assigns:
+          - Near Court: P1 (Primary) and P3 (Teammate)
+          - Far Court: P2 (Primary) and P4 (Teammate)
         """
-        near_det = None
-        far_det = None
+        self.total_frames_tracked += 1
+        near_dets = [d for d in detections if d.get("role") == "near"]
+        far_dets = [d for d in detections if d.get("role") == "far"]
 
-        for d in detections:
-            role = d.get("role")
-            if role == "near":
-                if near_det is None or d["confidence"] > near_det["confidence"]:
-                    near_det = d
-            elif role == "far":
-                if far_det is None or d["confidence"] > far_det["confidence"]:
-                    far_det = d
-
-        # Safety check: ensure near_det and far_det are distinctly separated in Y
-        if near_det is not None and far_det is not None:
-            if abs(near_det["bottom_center"][1] - far_det["bottom_center"][1]) < 30:
-                # If they overlap, keep only the higher confidence one
-                if near_det["confidence"] >= far_det["confidence"]:
-                    far_det = None
-                else:
-                    near_det = None
+        # Detect Doubles if >= 2 players on any side
+        if len(near_dets) >= 2 or len(far_dets) >= 2 or (len(near_dets) + len(far_dets) >= 3):
+            self.detected_doubles_frames += 1
+            if self.detected_doubles_frames >= 4:
+                self.is_doubles_mode = True
 
         tracked_players = []
 
-        # --- Update P1 (Near Player - Cyan) ---
-        if near_det is not None:
-            self.p1_missing = 0
-            if self.p1_track is not None:
-                # Smooth bbox interpolation
-                prev_bbox = self.p1_track["bbox"]
-                curr_bbox = near_det["bbox"]
-                smoothed_bbox = [
-                    round((1.0 - self.smoothing_alpha) * prev_bbox[i] + self.smoothing_alpha * curr_bbox[i], 1)
-                    for i in range(4)
-                ]
-                prev_bc = self.p1_track["bottom_center"]
-                curr_bc = near_det["bottom_center"]
-                smoothed_bc = [
-                    round((1.0 - self.smoothing_alpha) * prev_bc[i] + self.smoothing_alpha * curr_bc[i], 1)
-                    for i in range(2)
-                ]
-                self.p1_track = {
-                    "player_id": 1,
-                    "label": "VĐV 1 (Gần)",
-                    "bbox": smoothed_bbox,
-                    "bottom_center": smoothed_bc,
-                    "confidence": near_det["confidence"],
-                    "frame_idx": frame_idx,
-                }
-            else:
-                self.p1_track = {
-                    "player_id": 1,
-                    "label": "VĐV 1 (Gần)",
-                    "bbox": near_det["bbox"],
-                    "bottom_center": near_det["bottom_center"],
-                    "confidence": near_det["confidence"],
-                    "frame_idx": frame_idx,
-                }
-            tracked_players.append(dict(self.p1_track))
-        elif self.p1_track is not None and self.p1_missing < self.max_hold_frames:
-            self.p1_missing += 1
-            held_p1 = dict(self.p1_track)
-            held_p1["frame_idx"] = frame_idx
-            held_p1["confidence"] = max(0.4, held_p1["confidence"] * 0.95)
-            tracked_players.append(held_p1)
+        # --- Update Near Court (P1 & P3) ---
+        near_tracked = self._match_and_update_side(
+            candidates=near_dets,
+            primary_id=1,
+            secondary_id=3,
+            side_label="Gần",
+            frame_idx=frame_idx,
+        )
+        tracked_players.extend(near_tracked)
 
-        # --- Update P2 (Far Player - Amber) ---
-        if far_det is not None:
-            self.p2_missing = 0
-            if self.p2_track is not None:
-                # Smooth bbox interpolation
-                prev_bbox = self.p2_track["bbox"]
-                curr_bbox = far_det["bbox"]
-                smoothed_bbox = [
-                    round((1.0 - self.smoothing_alpha) * prev_bbox[i] + self.smoothing_alpha * curr_bbox[i], 1)
-                    for i in range(4)
-                ]
-                prev_bc = self.p2_track["bottom_center"]
-                curr_bc = far_det["bottom_center"]
-                smoothed_bc = [
-                    round((1.0 - self.smoothing_alpha) * prev_bc[i] + self.smoothing_alpha * curr_bc[i], 1)
-                    for i in range(2)
-                ]
-                self.p2_track = {
-                    "player_id": 2,
-                    "label": "VĐV 2 (Xa)",
-                    "bbox": smoothed_bbox,
-                    "bottom_center": smoothed_bc,
-                    "confidence": far_det["confidence"],
-                    "frame_idx": frame_idx,
-                }
-            else:
-                self.p2_track = {
-                    "player_id": 2,
-                    "label": "VĐV 2 (Xa)",
-                    "bbox": far_det["bbox"],
-                    "bottom_center": far_det["bottom_center"],
-                    "confidence": far_det["confidence"],
-                    "frame_idx": frame_idx,
-                }
-            tracked_players.append(dict(self.p2_track))
-        elif self.p2_track is not None and self.p2_missing < self.max_hold_frames:
-            self.p2_missing += 1
-            held_p2 = dict(self.p2_track)
-            held_p2["frame_idx"] = frame_idx
-            held_p2["confidence"] = max(0.4, held_p2["confidence"] * 0.95)
-            tracked_players.append(held_p2)
+        # --- Update Far Court (P2 & P4) ---
+        far_tracked = self._match_and_update_side(
+            candidates=far_dets,
+            primary_id=2,
+            secondary_id=4,
+            side_label="Xa",
+            frame_idx=frame_idx,
+        )
+        tracked_players.extend(far_tracked)
 
         return tracked_players
+
+    def _match_and_update_side(
+        self,
+        candidates: List[Dict[str, Any]],
+        primary_id: int,
+        secondary_id: int,
+        side_label: str,
+        frame_idx: int,
+    ) -> List[Dict[str, Any]]:
+        results = []
+        assigned_cands = set()
+
+        # Target IDs for this court side
+        track_ids = [primary_id, secondary_id] if self.is_doubles_mode else [primary_id]
+
+        for p_id in track_ids:
+            best_cand_idx = None
+            best_dist = float("inf")
+
+            if p_id in self.tracks and candidates:
+                prev_bc = self.tracks[p_id]["bottom_center"]
+                for idx, c in enumerate(candidates):
+                    if idx in assigned_cands:
+                        continue
+                    curr_bc = c["bottom_center"]
+                    dist = np.hypot(curr_bc[0] - prev_bc[0], curr_bc[1] - prev_bc[1])
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_cand_idx = idx
+
+            # If no previous track, assign first unassigned candidate
+            if best_cand_idx is None:
+                for idx, _ in enumerate(candidates):
+                    if idx not in assigned_cands:
+                        best_cand_idx = idx
+                        break
+
+            if best_cand_idx is not None:
+                assigned_cands.add(best_cand_idx)
+                cand = candidates[best_cand_idx]
+                self.missing_counts[p_id] = 0
+
+                if p_id in self.tracks:
+                    prev_bbox = self.tracks[p_id]["bbox"]
+                    curr_bbox = cand["bbox"]
+                    smoothed_bbox = [
+                        round((1.0 - self.smoothing_alpha) * prev_bbox[i] + self.smoothing_alpha * curr_bbox[i], 1)
+                        for i in range(4)
+                    ]
+                    prev_bc = self.tracks[p_id]["bottom_center"]
+                    curr_bc = cand["bottom_center"]
+                    smoothed_bc = [
+                        round((1.0 - self.smoothing_alpha) * prev_bc[i] + self.smoothing_alpha * curr_bc[i], 1)
+                        for i in range(2)
+                    ]
+                    self.tracks[p_id] = {
+                        "player_id": p_id,
+                        "label": f"VĐV {p_id} ({side_label})",
+                        "bbox": smoothed_bbox,
+                        "bottom_center": smoothed_bc,
+                        "confidence": cand["confidence"],
+                        "frame_idx": frame_idx,
+                    }
+                else:
+                    self.tracks[p_id] = {
+                        "player_id": p_id,
+                        "label": f"VĐV {p_id} ({side_label})",
+                        "bbox": cand["bbox"],
+                        "bottom_center": cand["bottom_center"],
+                        "confidence": cand["confidence"],
+                        "frame_idx": frame_idx,
+                    }
+                results.append(dict(self.tracks[p_id]))
+
+            elif p_id in self.tracks and self.missing_counts[p_id] < self.max_hold_frames:
+                self.missing_counts[p_id] += 1
+                held = dict(self.tracks[p_id])
+                held["frame_idx"] = frame_idx
+                held["confidence"] = max(0.35, held["confidence"] * 0.94)
+                results.append(held)
+
+        return results

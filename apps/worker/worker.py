@@ -130,12 +130,16 @@ def process_video_pipeline(match_id: str, video_path: str):
                 p_copy["x_norm"] = round(float(court_pt[0, 0]), 4)
                 p_copy["y_norm"] = round(float(court_pt[0, 1]), 4)
 
-                # Assign OCR extracted name
+                # Assign OCR extracted name or team label
                 p_id = p_copy.get("player_id", 1)
                 if p_id == 1:
-                    p_copy["label"] = extracted_names.get("player_1_name", "VĐV 1 (Gần)")
-                else:
-                    p_copy["label"] = extracted_names.get("player_2_name", "VĐV 2 (Xa)")
+                    p_copy["label"] = extracted_names.get("player_1_name", "VĐV 1 (Gần - Đội 1)")
+                elif p_id == 2:
+                    p_copy["label"] = extracted_names.get("player_2_name", "VĐV 2 (Xa - Đội 2)")
+                elif p_id == 3:
+                    p_copy["label"] = extracted_names.get("player_3_name", "VĐV 3 (Gần - Đội 1)")
+                elif p_id == 4:
+                    p_copy["label"] = extracted_names.get("player_4_name", "VĐV 4 (Xa - Đội 2)")
 
                 # Normalized bounding box coordinates for exact video overlay
                 bbox = p.get("bbox", [0, 0, 0, 0])
@@ -184,13 +188,23 @@ def process_video_pipeline(match_id: str, video_path: str):
                 current_pct = min(80, int(50 + (frame_idx / total_frames) * 30))
                 update_job_status(match_id, status="processing", progress=current_pct, stage="detection_and_tracking")
 
+        # Auto-detect match format (Singles 1v1 vs Doubles 2v2)
+        is_doubles = tracker.player_tracker.is_doubles_mode or any(
+            len(rec.get("players", [])) >= 3 for rec in frame_records
+        )
+
         # Propagate final OCR extracted names to all frames
         for rec in frame_records:
             for p in rec.get("players", []):
-                if p.get("player_id") == 1:
-                    p["label"] = extracted_names.get("player_1_name", "VĐV 1 (Gần)")
-                elif p.get("player_id") == 2:
-                    p["label"] = extracted_names.get("player_2_name", "VĐV 2 (Xa)")
+                p_id = p.get("player_id", 1)
+                if p_id == 1:
+                    p["label"] = extracted_names.get("player_1_name", "VĐV 1 (Gần - Đội 1)")
+                elif p_id == 2:
+                    p["label"] = extracted_names.get("player_2_name", "VĐV 2 (Xa - Đội 2)")
+                elif p_id == 3:
+                    p["label"] = extracted_names.get("player_3_name", "VĐV 3 (Gần - Đội 1)")
+                elif p_id == 4:
+                    p["label"] = extracted_names.get("player_4_name", "VĐV 4 (Xa - Đội 2)")
 
         # Global Trajectory Anti-Jitter Smoothing for Shuttlecock
         visible_shuttle_frames = [
@@ -220,9 +234,12 @@ def process_video_pipeline(match_id: str, video_path: str):
             frame_records=frame_records,
             fps=fps,
             match_metadata={"match_id": match_id, "video_metadata": metadata},
-            is_doubles=False,
+            is_doubles=is_doubles,
             player_names=extracted_names,
         )
+
+        analytics_result["metadata"]["is_doubles"] = is_doubles
+        analytics_result["metadata"]["mode"] = "Đôi (Doubles 2v2)" if is_doubles else "Đơn (Singles 1v1)"
 
         update_job_status(match_id, status="processing", progress=95, stage="completed")
 

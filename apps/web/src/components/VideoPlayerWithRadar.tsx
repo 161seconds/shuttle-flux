@@ -47,17 +47,86 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   const [isMuted, setIsMuted] = useState(true);
   const [videoError, setVideoError] = useState(false);
 
-  // Player Names State (Auto-extracted via OCR or manually edited)
+  // Player Names State (Auto-extracted via OCR or manually edited, supports 1v1 & 2v2)
   const [p1Name, setP1Name] = useState(
-    analytics.players?.player_1?.label || "VĐV 1 (Gần)"
+    analytics.players?.player_1?.label || "VĐV 1 (Gần - Đội 1)"
   );
   const [p2Name, setP2Name] = useState(
-    analytics.players?.player_2?.label || "VĐV 2 (Xa)"
+    analytics.players?.player_2?.label || "VĐV 2 (Xa - Đội 2)"
+  );
+  const [p3Name, setP3Name] = useState(
+    analytics.players?.player_3?.label || "VĐV 3 (Gần - Đội 1)"
+  );
+  const [p4Name, setP4Name] = useState(
+    analytics.players?.player_4?.label || "VĐV 4 (Xa - Đội 2)"
   );
   const [isEditingNames, setIsEditingNames] = useState(false);
   const [p1Input, setP1Input] = useState(p1Name);
   const [p2Input, setP2Input] = useState(p2Name);
+  const [p3Input, setP3Input] = useState(p3Name);
+  const [p4Input, setP4Input] = useState(p4Name);
   const [isSavingNames, setIsSavingNames] = useState(false);
+
+  const isDoublesMatch = Boolean(
+    analytics.metadata.is_doubles ||
+    analytics.players?.player_3 ||
+    analytics.frame_records?.some((f) => f.players && f.players.length >= 3)
+  );
+
+  const getPlayerStyle = (pId: number) => {
+    switch (pId) {
+      case 1:
+        return {
+          borderColor: "border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.5)]",
+          badgeBg: "bg-cyan-500 text-black font-extrabold",
+          anchorBorder: "border-cyan-400",
+          anchorBg: "bg-cyan-400 shadow-cyan-400/80",
+          colorText: "text-cyan-300",
+          dotColor: "bg-cyan-400",
+          name: p1Name,
+        };
+      case 3:
+        return {
+          borderColor: "border-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.5)]",
+          badgeBg: "bg-sky-400 text-black font-extrabold",
+          anchorBorder: "border-sky-400",
+          anchorBg: "bg-sky-400 shadow-sky-400/80",
+          colorText: "text-sky-300",
+          dotColor: "bg-sky-400",
+          name: p3Name,
+        };
+      case 2:
+        return {
+          borderColor: "border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)]",
+          badgeBg: "bg-amber-500 text-black font-extrabold",
+          anchorBorder: "border-amber-400",
+          anchorBg: "bg-amber-400 shadow-amber-400/80",
+          colorText: "text-amber-300",
+          dotColor: "bg-amber-400",
+          name: p2Name,
+        };
+      case 4:
+        return {
+          borderColor: "border-orange-400 shadow-[0_0_12px_rgba(251,146,60,0.5)]",
+          badgeBg: "bg-orange-500 text-black font-extrabold",
+          anchorBorder: "border-orange-400",
+          anchorBg: "bg-orange-400 shadow-orange-400/80",
+          colorText: "text-orange-300",
+          dotColor: "bg-orange-400",
+          name: p4Name,
+        };
+      default:
+        return {
+          borderColor: "border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.5)]",
+          badgeBg: "bg-cyan-500 text-black font-extrabold",
+          anchorBorder: "border-cyan-400",
+          anchorBg: "bg-cyan-400 shadow-cyan-400/80",
+          colorText: "text-cyan-300",
+          dotColor: "bg-cyan-400",
+          name: `VĐV ${pId}`,
+        };
+    }
+  };
 
   // Flexible Video Court Nodes State (Auto-detected per video, dynamically draggable)
   const defaultCourtNodes = {
@@ -708,20 +777,21 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
               {/* Synchronized AI Tracking Overlays */}
               {showOverlays && (
                 <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between z-20">
-                  {/* Top Left BWF Broadcast Scoreboard HUD */}
-                  <div className="flex flex-col bg-black/85 backdrop-blur-md rounded-xl border border-gray-700/80 shadow-2xl p-2.5 min-w-[180px] self-start mt-1 pointer-events-auto">
+                  {/* Top Left BWF Broadcast Scoreboard HUD (Auto-adapts for 1v1 Singles and 2v2 Doubles) */}
+                  <div className="flex flex-col bg-black/85 backdrop-blur-md rounded-xl border border-gray-700/80 shadow-2xl p-2.5 min-w-[190px] self-start mt-1 pointer-events-auto">
                     <div className="flex items-center justify-between border-b border-gray-800 pb-1 mb-1.5 text-[9px] font-bold text-gray-400">
                       <span className="flex items-center space-x-1 text-cyan-300">
                         <Sparkles className="w-3 h-3 text-brand-cyan" />
                         <span>BẢNG ĐIỂM TRẬN ĐẤU</span>
                       </span>
                       <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">
-                        BWF HUD
+                        {isDoublesMatch ? "2v2 ĐÔI" : "1v1 ĐƠN"}
                       </span>
                     </div>
-                    {/* Player 2 (Far - Top Line) */}
+
+                    {/* Team 2 (Far Court) */}
                     <div className="flex items-center justify-between py-0.5 text-xs font-bold">
-                      <div className="flex items-center space-x-1.5 truncate max-w-[135px]">
+                      <div className="flex items-center space-x-1.5 truncate max-w-[140px]">
                         <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50 flex-shrink-0" />
                         <span className="text-gray-100 truncate">{p2Name}</span>
                       </div>
@@ -729,9 +799,21 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                         P2
                       </span>
                     </div>
-                    {/* Player 1 (Near - Bottom Line) */}
-                    <div className="flex items-center justify-between py-0.5 text-xs font-bold mt-0.5">
-                      <div className="flex items-center space-x-1.5 truncate max-w-[135px]">
+                    {isDoublesMatch && (
+                      <div className="flex items-center justify-between py-0.5 text-xs font-bold">
+                        <div className="flex items-center space-x-1.5 truncate max-w-[140px]">
+                          <span className="w-2.5 h-2.5 rounded-full bg-orange-400 shadow-sm shadow-orange-400/50 flex-shrink-0" />
+                          <span className="text-gray-100 truncate">{p4Name}</span>
+                        </div>
+                        <span className="text-[10px] px-1 py-0.2 bg-orange-950 text-orange-400 rounded border border-orange-800/80 font-mono ml-2">
+                          P4
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Team 1 (Near Court) */}
+                    <div className="flex items-center justify-between py-0.5 text-xs font-bold mt-0.5 border-t border-gray-800/80 pt-1">
+                      <div className="flex items-center space-x-1.5 truncate max-w-[140px]">
                         <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50 flex-shrink-0" />
                         <span className="text-gray-100 truncate">{p1Name}</span>
                       </div>
@@ -739,6 +821,17 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                         P1
                       </span>
                     </div>
+                    {isDoublesMatch && (
+                      <div className="flex items-center justify-between py-0.5 text-xs font-bold">
+                        <div className="flex items-center space-x-1.5 truncate max-w-[140px]">
+                          <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shadow-sm shadow-sky-400/50 flex-shrink-0" />
+                          <span className="text-gray-100 truncate">{p3Name}</span>
+                        </div>
+                        <span className="text-[10px] px-1 py-0.2 bg-sky-950 text-sky-400 rounded border border-sky-800/80 font-mono ml-2">
+                          P3
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Top Right HUD Frame Counter */}
@@ -749,17 +842,20 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                     </span>
                   </div>
 
-                  {/* Player & Shuttlecock Bounding Boxes */}
+                  {/* Player & Shuttlecock Bounding Boxes (Supports all active players in 1v1 & 2v2) */}
                   {currentFrame && (
                     <div className="absolute inset-0">
-                      {/* Player 1 (Cyan - Near) and Player 2 (Amber - Far) */}
                       {currentFrame.players.map((p) => {
+                        const pId = p.player_id || 1;
+                        const isNear = pId === 1 || pId === 3;
+                        const styleConfig = getPlayerStyle(pId);
+
                         let left = `${p.x_norm * 70 + 15}%`;
-                        let top = p.player_id === 1 ? "68%" : "44%";
-                        let width = p.player_id === 1 ? "4.5rem" : "3.2rem";
-                        let height = p.player_id === 1 ? "6.8rem" : "4.0rem";
+                        let top = isNear ? "68%" : "44%";
+                        let width = isNear ? "4.5rem" : "3.2rem";
+                        let height = isNear ? "6.8rem" : "4.0rem";
                         let footX = p.x_norm * 70 + 15;
-                        let footY = p.player_id === 1 ? 90 : 54;
+                        let footY = isNear ? 90 : 54;
 
                         if (p.bbox_norm && p.bbox_norm.length === 4) {
                           const [bx1, by1, bx2, by2] = p.bbox_norm;
@@ -771,39 +867,31 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                           footY = by2 * 100;
                         }
 
-                        const isP1 = p.player_id === 1;
-                        const borderColor = isP1
-                          ? "border-cyan-400 shadow-[0_0_12px_rgba(0,229,255,0.5)]"
-                          : "border-amber-400 shadow-[0_0_12px_rgba(255,145,0,0.5)]";
-                        const badgeBg = isP1
-                          ? "bg-cyan-500 text-black font-extrabold"
-                          : "bg-amber-500 text-black font-extrabold";
                         const confText = p.confidence ? `${Math.round(p.confidence * 100)}%` : "94%";
-                        const displayName = isP1 ? p1Name : p2Name;
                         const coordText = `(${Math.round(p.x_norm * 100)}%, ${Math.round(
                           p.y_norm * 100
                         )}%)`;
 
                         return (
-                          <React.Fragment key={p.player_id}>
+                          <React.Fragment key={pId}>
                             {/* Player Bounding Box */}
                             <div
-                              className={`absolute border-2 ${borderColor} rounded-xl transition-all duration-75 flex flex-col justify-between p-1 bg-black/25 backdrop-blur-[0.5px]`}
+                              className={`absolute border-2 ${styleConfig.borderColor} rounded-xl transition-all duration-75 flex flex-col justify-between p-1 bg-black/25 backdrop-blur-[0.5px]`}
                               style={{ top, left, width, height }}
                             >
                               <div className="flex items-center space-x-1.5 bg-black/90 px-1.5 py-0.5 rounded-md text-white w-fit border border-gray-700 shadow-md">
-                                <span className={`text-[9px] px-1 py-0.2 rounded ${badgeBg}`}>
-                                  P{p.player_id}
+                                <span className={`text-[9px] px-1 py-0.2 rounded ${styleConfig.badgeBg}`}>
+                                  P{pId}
                                 </span>
                                 <span className="text-[9px] font-bold text-gray-100 max-w-[100px] truncate">
-                                  {displayName}
+                                  {styleConfig.name}
                                 </span>
                                 <span className="text-[8px] opacity-75">{confText}</span>
                               </div>
 
                               <div className="flex items-center justify-between px-1 text-[8px] font-mono text-gray-300 bg-black/70 rounded">
                                 <span>2D Court:</span>
-                                <span className={isP1 ? "text-cyan-300 font-bold" : "text-amber-300 font-bold"}>
+                                <span className={`${styleConfig.colorText} font-bold`}>
                                   {coordText}
                                 </span>
                               </div>
@@ -816,16 +904,10 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                             >
                               <div className="relative flex items-center justify-center">
                                 <div
-                                  className={`w-6 h-6 rounded-full border border-dashed animate-spin-slow ${
-                                    isP1 ? "border-cyan-400" : "border-amber-400"
-                                  }`}
+                                  className={`w-6 h-6 rounded-full border border-dashed animate-spin-slow ${styleConfig.anchorBorder}`}
                                 />
                                 <div
-                                  className={`w-2.5 h-2.5 rounded-full absolute shadow-lg ${
-                                    isP1
-                                      ? "bg-cyan-400 shadow-cyan-400/80"
-                                      : "bg-amber-400 shadow-amber-400/80"
-                                  }`}
+                                  className={`w-2.5 h-2.5 rounded-full absolute shadow-lg ${styleConfig.anchorBg}`}
                                 />
                               </div>
                             </div>
@@ -859,7 +941,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
 
                   {/* Bottom Model Badge */}
                   <div className="text-right text-[10px] text-cyan-400 bg-black/80 px-2.5 py-0.5 rounded-md w-fit self-end font-mono border border-cyan-800/60 shadow-md">
-                    <span>YOLOv8 + ByteTrack v2 (Khóa ID Cố Định)</span>
+                    <span>YOLOv8 + Multi-Player Tracker ({isDoublesMatch ? "2v2 Doubles" : "1v1 Singles"})</span>
                   </div>
                 </div>
               )}

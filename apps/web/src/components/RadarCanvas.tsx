@@ -197,52 +197,42 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
           shuttleTrailRef.current = [];
         }
 
-        // 2. Render Players & Motion Trails
+        // 2. Render Players & Motion Trails (Supports 1v1 Singles & 2v2 Doubles)
+        const playerColorMap: Record<number, { solid: string; glow: string; fill: string; ring: string }> = {
+          1: { solid: "#00e5ff", glow: "#00e5ff", fill: "#000000", ring: "rgba(0, 229, 255, 0.4)" },
+          3: { solid: "#38bdf8", glow: "#38bdf8", fill: "#000000", ring: "rgba(56, 189, 248, 0.4)" },
+          2: { solid: "#f59e0b", glow: "#f59e0b", fill: "#000000", ring: "rgba(245, 158, 11, 0.4)" },
+          4: { solid: "#fb923c", glow: "#fb923c", fill: "#000000", ring: "rgba(251, 146, 60, 0.4)" },
+        };
+
         currentFrame.players.forEach((p) => {
-          const isP1 = p.player_id === 1;
-          const px = x0 + Math.max(0.05, Math.min(0.95, p.x_norm)) * courtW;
-          const py = y0 + Math.max(0.05, Math.min(0.95, p.y_norm)) * courtH;
-
-          // Track trails
-          const trailList = isP1 ? p1TrailRef.current : p2TrailRef.current;
-          trailList.push({ x: px, y: py });
-          if (trailList.length > 10) trailList.shift();
-
-          // Draw subtle motion line
-          if (trailList.length > 1) {
-            ctx.beginPath();
-            for (let i = 0; i < trailList.length; i++) {
-              const t = trailList[i];
-              if (i === 0) ctx.moveTo(t.x, t.y);
-              else ctx.lineTo(t.x, t.y);
-            }
-            ctx.strokeStyle = isP1 ? "rgba(0, 229, 255, 0.25)" : "rgba(255, 145, 0, 0.25)";
-            ctx.lineWidth = 2;
-            ctx.stroke();
-          }
+          const pId = p.player_id || 1;
+          const colors = playerColorMap[pId] || playerColorMap[1];
+          const px = x0 + Math.max(0.04, Math.min(0.96, p.x_norm)) * courtW;
+          const py = y0 + Math.max(0.04, Math.min(0.96, p.y_norm)) * courtH;
 
           // Pulsing radar ripple ring
-          const ringRadius = 14 + pulse * 3;
-          ctx.strokeStyle = isP1 ? "rgba(0, 229, 255, 0.4)" : "rgba(255, 145, 0, 0.4)";
-          ctx.lineWidth = 1.5;
+          const ringRadius = 13 + pulse * 2.5;
+          ctx.strokeStyle = colors.ring;
+          ctx.lineWidth = 1.4;
           ctx.beginPath();
           ctx.arc(px, py, ringRadius, 0, Math.PI * 2);
           ctx.stroke();
 
           // Solid Player Dot
-          ctx.shadowColor = isP1 ? "#00e5ff" : "#ff9100";
+          ctx.shadowColor = colors.glow;
           ctx.shadowBlur = 10;
-          ctx.fillStyle = isP1 ? "#00e5ff" : "#ff9100";
+          ctx.fillStyle = colors.solid;
           ctx.beginPath();
-          ctx.arc(px, py, 8, 0, Math.PI * 2);
+          ctx.arc(px, py, 7.5, 0, Math.PI * 2);
           ctx.fill();
           ctx.shadowBlur = 0;
 
-          // Player number label
-          ctx.fillStyle = "#000000";
+          // Player ID label
+          ctx.fillStyle = colors.fill;
           ctx.font = "bold 9px sans-serif";
           ctx.textAlign = "center";
-          ctx.fillText(isP1 ? "1" : "2", px, py + 3);
+          ctx.fillText(`P${pId}`, px, py + 3);
         });
       }
 
