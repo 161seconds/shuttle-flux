@@ -9,12 +9,14 @@ import {
   Link as LinkIcon,
   Sparkles,
   ArrowRight,
+  XCircle,
 } from "lucide-react";
 import { ProcessingStatus } from "../lib/api";
 
 interface UploadSectionProps {
   onFileUpload: (file: File) => void;
   onYouTubeSubmit: (url: string) => void;
+  onCancel?: () => void;
   processingStatus: ProcessingStatus | null;
   isUploading: boolean;
 }
@@ -22,6 +24,7 @@ interface UploadSectionProps {
 export const UploadSection: React.FC<UploadSectionProps> = ({
   onFileUpload,
   onYouTubeSubmit,
+  onCancel,
   processingStatus,
   isUploading,
 }) => {
@@ -219,10 +222,23 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                 </p>
               </div>
             </div>
-            <div className="text-right">
-              <span className="text-2xl font-black text-brand-cyan">
-                {processingStatus.progress_percentage}%
-              </span>
+            <div className="flex items-center space-x-4">
+              <div className="text-right">
+                <span className="text-2xl font-black text-brand-cyan">
+                  {processingStatus.progress_percentage}%
+                </span>
+              </div>
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="px-3.5 py-1.5 rounded-xl bg-red-950/50 hover:bg-red-900/80 border border-red-800 text-red-300 hover:text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-md hover:scale-105 active:scale-95"
+                  title="Hủy tiến trình đang chạy"
+                >
+                  <XCircle className="w-4 h-4 text-red-400" />
+                  <span>Hủy</span>
+                </button>
+              )}
             </div>
           </div>
 

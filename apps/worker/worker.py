@@ -20,7 +20,7 @@ from pipelines.detect import DetectionPipeline
 from pipelines.track import TrackingPipeline
 from pipelines.analyze import run_full_analytics
 from pipelines.render import render_annotated_frame, render_2d_radar_court
-from apps.api.storage import update_job_status, save_analytics_result
+from apps.api.storage import update_job_status, save_analytics_result, is_job_cancelled
 
 
 def process_video_pipeline(match_id: str, video_path: str):
@@ -34,12 +34,18 @@ def process_video_pipeline(match_id: str, video_path: str):
     6. Persistence & Completion
     """
     try:
+        if is_job_cancelled(match_id):
+            return
+
         update_job_status(match_id, status="processing", progress=5, stage="preprocessing")
 
         # Step 1: Preprocessing
         metadata = extract_video_metadata(video_path)
         fps = metadata.get("fps", 30.0)
         total_frames = metadata.get("total_frames", 300)
+
+        if is_job_cancelled(match_id):
+            return
 
         # Step 2: Court Calibration
         update_job_status(match_id, status="processing", progress=15, stage="court_calibration")
@@ -52,6 +58,9 @@ def process_video_pipeline(match_id: str, video_path: str):
             top_right_px=(650, 150),
         )
 
+        if is_job_cancelled(match_id):
+            return
+
         # Step 3: Detection & Tracking
         update_job_status(match_id, status="processing", progress=30, stage="detection_and_tracking")
         detector = DetectionPipeline()
@@ -61,6 +70,10 @@ def process_video_pipeline(match_id: str, video_path: str):
         frame_count = 0
 
         for frame_idx, timestamp, frame in frame_generator(video_path, max_frames=600):
+            if is_job_cancelled(match_id):
+                print(f"[Worker] Match {match_id} cancelled by user. Terminating worker.")
+                return
+
             # Run detection
             raw_dets = detector.run_frame(frame)
 

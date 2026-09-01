@@ -58,3 +58,20 @@ def test_api_youtube_endpoint_validation():
     assert "match_id" in data
     assert data["status"] == "processing"
 
+
+def test_api_cancel_endpoint():
+    # Trigger demo match first
+    res = client.post("/api/v1/matches/demo")
+    match_id = res.json()["match_id"]
+
+    # Cancel match
+    cancel_res = client.post(f"/api/v1/matches/{match_id}/cancel")
+    assert cancel_res.status_code == 200
+    assert cancel_res.json()["status"] == "cancelled"
+
+    # Status check confirms cancelled
+    status_res = client.get(f"/api/v1/matches/{match_id}/processing")
+    assert status_res.status_code == 200
+    assert status_res.json()["status"] == "cancelled"
+
+

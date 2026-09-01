@@ -13,6 +13,7 @@ import {
   ProcessingStatus,
   uploadVideo,
   analyzeYouTubeUrl,
+  cancelProcessing,
   getProcessingStatus,
   getMatchAnalytics,
   createDemoMatch,
@@ -37,8 +38,12 @@ export default function Home() {
           if (status.status === "completed") {
             const data = await getMatchAnalytics(activeMatchId);
             setAnalytics(data);
-          } else if (status.status === "failed") {
-            alert(`Processing failed: ${status.error_message || "Unknown error"}`);
+          } else if (status.status === "failed" || status.status === "cancelled") {
+            if (status.status === "failed") {
+              alert(`Processing failed: ${status.error_message || "Unknown error"}`);
+            }
+            setActiveMatchId(null);
+            setProcessingStatus(null);
           }
         } catch (e) {
           console.error("Polling error:", e);
@@ -84,6 +89,19 @@ export default function Home() {
     }
   };
 
+  const handleCancelProcessing = async () => {
+    if (activeMatchId) {
+      try {
+        await cancelProcessing(activeMatchId);
+      } catch (e) {
+        console.warn("Cancel warning:", e);
+      }
+    }
+    setActiveMatchId(null);
+    setProcessingStatus(null);
+    setIsUploading(false);
+  };
+
   const handleLoadDemo = async () => {
     try {
       setIsLoadingDemo(true);
@@ -122,6 +140,7 @@ export default function Home() {
           <UploadSection
             onFileUpload={handleFileUpload}
             onYouTubeSubmit={handleYouTubeSubmit}
+            onCancel={handleCancelProcessing}
             processingStatus={processingStatus}
             isUploading={isUploading}
           />

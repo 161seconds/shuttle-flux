@@ -29,6 +29,7 @@ from apps.api.storage import (
     register_youtube_match,
     get_match_info,
     get_job_status,
+    cancel_job,
     get_analytics_result,
     list_all_matches,
     update_job_status,
@@ -184,6 +185,16 @@ async def get_match_processing_status(match_id: str):
     """Polls processing progress and pipeline stage."""
     status_data = get_job_status(match_id)
     return ProcessingStatusResponse(**status_data)
+
+
+@app.post("/api/v1/matches/{match_id}/cancel")
+async def cancel_match_processing(match_id: str):
+    """Cancels active processing job for a match."""
+    success = cancel_job(match_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Match job not found")
+    return {"status": "cancelled", "match_id": match_id}
+
 
 
 @app.get("/api/v1/matches/{match_id}/analytics")

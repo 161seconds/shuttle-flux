@@ -96,6 +96,24 @@ def get_job_status(match_id: str) -> Dict[str, Any]:
     )
 
 
+def cancel_job(match_id: str) -> bool:
+    """Marks an active job as cancelled."""
+    if match_id in _JOB_REGISTRY:
+        _JOB_REGISTRY[match_id]["status"] = "cancelled"
+        _JOB_REGISTRY[match_id]["cancelled"] = True
+        _JOB_REGISTRY[match_id]["error_message"] = "Processing cancelled by user"
+        if match_id in _MATCH_REGISTRY:
+            _MATCH_REGISTRY[match_id]["status"] = "cancelled"
+        return True
+    return False
+
+
+def is_job_cancelled(match_id: str) -> bool:
+    """Checks whether a job has been cancelled."""
+    job = _JOB_REGISTRY.get(match_id)
+    return bool(job and (job.get("status") == "cancelled" or job.get("cancelled", False)))
+
+
 def save_analytics_result(match_id: str, result_data: Dict[str, Any]):
     """Persists analytics result to disk as JSON."""
     path = os.path.join(RESULTS_DIR, f"{match_id}_analytics.json")
