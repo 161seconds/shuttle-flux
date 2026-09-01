@@ -108,9 +108,15 @@ class CourtCalibrator:
         top_left_px: Tuple[float, float],
         top_right_px: Tuple[float, float],
     ) -> bool:
-        """Convenience method to calibrate using the 4 main court corners."""
-        src = [bottom_left_px, bottom_right_px, top_left_px, top_right_px]
-        dst = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]
+        """
+        Convenience method to calibrate using the 4 main court corners:
+        - top_left (Far Left): maps to (0.0, 0.0) [Far Baseline Left]
+        - top_right (Far Right): maps to (1.0, 0.0) [Far Baseline Right]
+        - bottom_right (Near Right): maps to (1.0, 1.0) [Near Baseline Right]
+        - bottom_left (Near Left): maps to (0.0, 1.0) [Near Baseline Left]
+        """
+        src = [top_left_px, top_right_px, bottom_right_px, bottom_left_px]
+        dst = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
         return self.calibrate_from_points(src, dst)
 
     def transform_image_to_court(

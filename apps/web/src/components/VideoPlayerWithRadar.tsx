@@ -17,6 +17,7 @@ import {
   Check,
   X,
   UserCheck,
+  Grid,
 } from "lucide-react";
 import { MatchAnalytics, FrameRecord, API_BASE_URL, updatePlayerNames } from "../lib/api";
 import { RadarCanvas } from "./RadarCanvas";
@@ -32,6 +33,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
 }) => {
   const [viewMode, setViewMode] = useState<"dual" | "single">("dual");
   const [showOverlays, setShowOverlays] = useState(true);
+  const [showCourtMesh, setShowCourtMesh] = useState(true);
   const [showVoronoi, setShowVoronoi] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
@@ -217,7 +219,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
               Trình Xem Trận Đấu & Radar Đồng Bộ Thời Gian Thực
             </h3>
             <p className="text-xs text-gray-400">
-              Nhận diện OCR bảng điểm & Khóa định danh vận động viên
+              Chiếu phối cảnh Homography 3D & Định vị bước chân vận động viên trên sân
             </p>
           </div>
         </div>
@@ -239,6 +241,20 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
           >
             <Edit3 className="w-3.5 h-3.5" />
             <span>Đổi tên VĐV</span>
+          </button>
+
+          {/* Toggle Court Perspective Nodes Mesh */}
+          <button
+            onClick={() => setShowCourtMesh(!showCourtMesh)}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+              showCourtMesh
+                ? "bg-emerald-950/70 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/20"
+                : "bg-surface border-gray-800 text-gray-400 hover:text-gray-200"
+            }`}
+            title="Bật/Tắt Lưới tọa độ sân 3D và các Node điểm chuẩn Homography"
+          >
+            <Grid className="w-3.5 h-3.5" />
+            <span>{showCourtMesh ? "Lưới Sân 3D: Bật" : "Lưới Sân 3D: Tắt"}</span>
           </button>
 
           {/* Mode Switcher: Dual vs Single */}
@@ -423,9 +439,99 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                 </div>
               )}
 
+              {/* 3D Perspective Court Nodes & Connected Mesh Grid Overlay */}
+              {showCourtMesh && (
+                <svg
+                  className="absolute inset-0 w-full h-full pointer-events-none z-10"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                >
+                  {/* Outer Court Perspective Perimeter Polygon */}
+                  <polygon
+                    points="32,28 68,28 88,92 12,92"
+                    fill="rgba(16, 185, 129, 0.04)"
+                    stroke="rgba(16, 185, 129, 0.65)"
+                    strokeWidth="0.75"
+                    strokeLinejoin="round"
+                  />
+
+                  {/* Net Line (Cyan Glow) */}
+                  <line
+                    x1="22"
+                    y1="56"
+                    x2="78"
+                    y2="56"
+                    stroke="#00e5ff"
+                    strokeWidth="1.2"
+                    strokeDasharray="1.5, 1"
+                  />
+
+                  {/* Far Short Service Line */}
+                  <line
+                    x1="26"
+                    y1="41"
+                    x2="74"
+                    y2="41"
+                    stroke="rgba(16, 185, 129, 0.45)"
+                    strokeWidth="0.6"
+                  />
+
+                  {/* Near Short Service Line */}
+                  <line
+                    x1="18"
+                    y1="72"
+                    x2="82"
+                    y2="72"
+                    stroke="rgba(16, 185, 129, 0.45)"
+                    strokeWidth="0.6"
+                  />
+
+                  {/* Center Longitudinal Line */}
+                  <line
+                    x1="50"
+                    y1="28"
+                    x2="50"
+                    y2="41"
+                    stroke="rgba(16, 185, 129, 0.4)"
+                    strokeWidth="0.5"
+                  />
+                  <line
+                    x1="50"
+                    y1="72"
+                    x2="50"
+                    y2="92"
+                    stroke="rgba(16, 185, 129, 0.4)"
+                    strokeWidth="0.5"
+                  />
+
+                  {/* Court Corner Landmark Nodes (Glowing Points) */}
+                  {[
+                    { cx: 32, cy: 28, label: "P_TL" },
+                    { cx: 68, cy: 28, label: "P_TR" },
+                    { cx: 88, cy: 92, label: "P_BR" },
+                    { cx: 12, cy: 92, label: "P_BL" },
+                    { cx: 22, cy: 56, label: "Net_L" },
+                    { cx: 78, cy: 56, label: "Net_R" },
+                  ].map((node) => (
+                    <g key={node.label}>
+                      <circle cx={node.cx} cy={node.cy} r="1.2" fill="#10b981" />
+                      <circle
+                        cx={node.cx}
+                        cy={node.cy}
+                        r="2.2"
+                        fill="none"
+                        stroke="#00e5ff"
+                        strokeWidth="0.4"
+                        opacity="0.8"
+                      />
+                    </g>
+                  ))}
+                </svg>
+              )}
+
               {/* Synchronized AI Tracking Overlays */}
               {showOverlays && (
-                <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between z-10">
+                <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between z-20">
                   {/* Top Right HUD */}
                   <div className="flex justify-between items-center text-[11px] font-mono text-cyan-300 bg-black/85 px-3 py-1 rounded-lg border border-cyan-500/40 w-fit backdrop-blur-md self-end mt-1 shadow-lg">
                     <span>FRAME: {currentFrame ? currentFrame.frame_idx : 0}</span>
@@ -443,6 +549,8 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                         let top = p.player_id === 1 ? "62%" : "22%";
                         let width = "4.5rem";
                         let height = "7.5rem";
+                        let footX = p.x_norm * 80 + 10;
+                        let footY = p.player_id === 1 ? 88 : 38;
 
                         if (p.bbox_norm && p.bbox_norm.length === 4) {
                           const [bx1, by1, bx2, by2] = p.bbox_norm;
@@ -450,6 +558,8 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                           top = `${Math.max(0, Math.min(90, by1 * 100))}%`;
                           width = `${Math.max(4, Math.min(45, (bx2 - bx1) * 100))}%`;
                           height = `${Math.max(6, Math.min(65, (by2 - by1) * 100))}%`;
+                          footX = (bx1 + bx2) * 50;
+                          footY = by2 * 100;
                         }
 
                         const isP1 = p.player_id === 1;
@@ -461,25 +571,56 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                           : "bg-amber-500 text-black font-extrabold";
                         const confText = p.confidence ? `${Math.round(p.confidence * 100)}%` : "94%";
                         const displayName = isP1 ? p1Name : p2Name;
+                        const coordText = `(${Math.round(p.x_norm * 100)}%, ${Math.round(
+                          p.y_norm * 100
+                        )}%)`;
 
                         return (
-                          <div
-                            key={p.player_id}
-                            className={`absolute border-2 ${borderColor} rounded-xl transition-all duration-75 flex flex-col justify-between p-1 bg-black/25 backdrop-blur-[0.5px]`}
-                            style={{ top, left, width, height }}
-                          >
-                            <div className="flex items-center space-x-1.5 bg-black/90 px-1.5 py-0.5 rounded-md text-white w-fit border border-gray-700 shadow-md">
-                              <span className={`text-[9px] px-1 py-0.2 rounded ${badgeBg}`}>
-                                P{p.player_id}
-                              </span>
-                              <span className="text-[9px] font-bold text-gray-100 max-w-[110px] truncate">
-                                {displayName}
-                              </span>
-                              <span className="text-[8px] opacity-75">{confText}</span>
+                          <React.Fragment key={p.player_id}>
+                            {/* Player Bounding Box */}
+                            <div
+                              className={`absolute border-2 ${borderColor} rounded-xl transition-all duration-75 flex flex-col justify-between p-1 bg-black/25 backdrop-blur-[0.5px]`}
+                              style={{ top, left, width, height }}
+                            >
+                              <div className="flex items-center space-x-1.5 bg-black/90 px-1.5 py-0.5 rounded-md text-white w-fit border border-gray-700 shadow-md">
+                                <span className={`text-[9px] px-1 py-0.2 rounded ${badgeBg}`}>
+                                  P{p.player_id}
+                                </span>
+                                <span className="text-[9px] font-bold text-gray-100 max-w-[100px] truncate">
+                                  {displayName}
+                                </span>
+                                <span className="text-[8px] opacity-75">{confText}</span>
+                              </div>
+
+                              <div className="flex items-center justify-between px-1 text-[8px] font-mono text-gray-300 bg-black/70 rounded">
+                                <span>2D Court:</span>
+                                <span className={isP1 ? "text-cyan-300 font-bold" : "text-amber-300 font-bold"}>
+                                  {coordText}
+                                </span>
+                              </div>
                             </div>
-                            {/* Pulsing Foot Anchor Point */}
-                            <div className="w-2.5 h-2.5 rounded-full bg-white mx-auto shadow-[0_0_8px_#ffffff] border border-cyan-400 animate-pulse"></div>
-                          </div>
+
+                            {/* Contact Point Node on Floor (Feet Anchor) */}
+                            <div
+                              className="absolute pointer-events-none transform -translate-x-1/2 -translate-y-1/2 z-10"
+                              style={{ left: `${footX}%`, top: `${footY}%` }}
+                            >
+                              <div className="relative flex items-center justify-center">
+                                <div
+                                  className={`w-6 h-6 rounded-full border border-dashed animate-spin-slow ${
+                                    isP1 ? "border-cyan-400" : "border-amber-400"
+                                  }`}
+                                />
+                                <div
+                                  className={`w-2.5 h-2.5 rounded-full absolute shadow-lg ${
+                                    isP1
+                                      ? "bg-cyan-400 shadow-cyan-400/80"
+                                      : "bg-amber-400 shadow-amber-400/80"
+                                  }`}
+                                />
+                              </div>
+                            </div>
+                          </React.Fragment>
                         );
                       })}
 
@@ -488,7 +629,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                         currentFrame.shuttle.visible &&
                         currentFrame.shuttle.center_norm && (
                           <div
-                            className="absolute transition-all duration-75 z-20 pointer-events-none"
+                            className="absolute transition-all duration-75 z-30 pointer-events-none"
                             style={{
                               top: `${currentFrame.shuttle.center_norm[1] * 100}%`,
                               left: `${currentFrame.shuttle.center_norm[0] * 100}%`,
@@ -612,11 +753,11 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-1.5 max-w-[120px] truncate">
                 <div className="w-2.5 h-2.5 rounded-full bg-brand-cyan shadow-sm shadow-cyan-400 flex-shrink-0" />
-                <span className="truncate">{p1Name}</span>
+                <span className="truncate">{p1Name} (Gần)</span>
               </div>
               <div className="flex items-center space-x-1.5 max-w-[120px] truncate">
                 <div className="w-2.5 h-2.5 rounded-full bg-brand-amber shadow-sm shadow-amber-400 flex-shrink-0" />
-                <span className="truncate">{p2Name}</span>
+                <span className="truncate">{p2Name} (Xa)</span>
               </div>
             </div>
             <div className="flex items-center space-x-1.5 text-gray-400 text-[10px]">

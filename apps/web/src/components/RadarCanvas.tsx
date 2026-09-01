@@ -140,8 +140,8 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
       ctx.fillStyle = "#6b7280";
       ctx.font = "bold 9px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("SÂN GẦN (VĐV 1)", centerX, y0 + 16);
-      ctx.fillText("SÂN XA (VĐV 2)", centerX, y1 - 8);
+      ctx.fillText("SÂN XA (VĐV 2)", centerX, y0 + 16);
+      ctx.fillText("SÂN GẦN (VĐV 1)", centerX, y1 - 8);
 
       if (currentFrame) {
         // 1. Render Shuttlecock Trajectory Trail (ONLY when visible)
