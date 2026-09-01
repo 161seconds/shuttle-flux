@@ -71,11 +71,12 @@ def process_video_pipeline(match_id: str, video_path: str):
         scoreboard_reader = ScoreboardReader()
 
         extracted_names = {"player_1_name": "VĐV 1 (Gần)", "player_2_name": "VĐV 2 (Xa)", "source": "default"}
+        ocr_scanned = False
         frame_records = []
         frame_count = 0
 
-        # Process frames across the full video (step every 2 frames if > 600 frames for speed)
-        step_stride = 2 if total_frames > 600 else 1
+        # Adaptive Frame Stride: Target ~15 FPS analysis for lightning fast processing & 60fps interpolation
+        step_stride = max(2, int(fps / 15)) if fps > 15 else 1
 
         for frame_idx, timestamp, frame in frame_generator(video_path, max_frames=None):
             if is_job_cancelled(match_id):
@@ -91,8 +92,9 @@ def process_video_pipeline(match_id: str, video_path: str):
             # Run tracking
             tracked = tracker.update(raw_dets, frame_idx, timestamp)
 
-            # Scoreboard & Jersey OCR scan on early frames
-            if frame_count < 20 and extracted_names.get("source") == "default":
+            # One-shot Scoreboard & Jersey OCR scan on single keyframe (takes <1s total)
+            if not ocr_scanned and frame_count >= 6:
+                ocr_scanned = True
                 try:
                     near_box = tracked.get("players", [{}])[0].get("bbox") if tracked.get("players") else None
                     ocr_res = scoreboard_reader.extract_player_names_from_frame(frame, near_player_bbox=near_box)

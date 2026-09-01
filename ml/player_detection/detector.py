@@ -29,11 +29,16 @@ class PlayerDetector:
         """
         h, w, _ = frame.shape
         if self.model is not None:
-            results = self.model(frame, conf=self.conf_threshold, verbose=False)[0]
+            # Ultra-fast Person-only inference with optimized 480px input size
+            results = self.model(
+                frame,
+                imgsz=480,
+                classes=[0],
+                conf=self.conf_threshold,
+                verbose=False,
+            )[0]
             raw_detections = []
             for box in results.boxes:
-                # Class 0 in COCO is person
-                if int(box.cls[0]) == 0:
                     xyxy = box.xyxy[0].cpu().numpy().tolist()
                     conf = float(box.conf[0].cpu().numpy())
                     x1, y1, x2, y2 = xyxy
