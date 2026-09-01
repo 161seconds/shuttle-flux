@@ -833,12 +833,12 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                         );
                       })}
 
-                      {/* Real White Shuttlecock (Rendered ONLY when visible) */}
+                      {/* Real White Shuttlecock (Rendered ONLY when visible with smooth gliding transition) */}
                       {currentFrame.shuttle &&
                         currentFrame.shuttle.visible &&
                         currentFrame.shuttle.center_norm && (
                           <div
-                            className="absolute transition-all duration-75 z-30 pointer-events-none"
+                            className="absolute transition-[top,left] duration-100 ease-linear z-30 pointer-events-none"
                             style={{
                               top: `${currentFrame.shuttle.center_norm[1] * 100}%`,
                               left: `${currentFrame.shuttle.center_norm[0] * 100}%`,
@@ -846,8 +846,8 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                             }}
                           >
                             <div className="relative flex items-center justify-center">
-                              <div className="w-5 h-5 rounded-full border-2 border-white/90 shadow-[0_0_12px_#ffffff] animate-ping absolute" />
-                              <div className="w-3.5 h-3.5 rounded-full bg-white border border-cyan-400 shadow-[0_0_10px_#ffffff]" />
+                              <div className="w-5 h-5 rounded-full border border-white/80 shadow-[0_0_10px_#ffffff] animate-ping absolute opacity-70" />
+                              <div className="w-3.5 h-3.5 rounded-full bg-white border border-cyan-400 shadow-[0_0_12px_#ffffff]" />
                               <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white bg-black/85 px-1.5 py-0.2 rounded border border-white/40 whitespace-nowrap shadow-md">
                                 🏸 Quả cầu
                               </span>

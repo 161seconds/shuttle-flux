@@ -144,13 +144,27 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
       ctx.fillText("SÂN GẦN (VĐV 1)", centerX, y1 - 8);
 
       if (currentFrame) {
-        // 1. Render Shuttlecock Trajectory Trail (ONLY when visible)
-        if (currentFrame.shuttle && currentFrame.shuttle.visible) {
-          const sx = x0 + Math.max(0.05, Math.min(0.95, currentFrame.shuttle.x_norm)) * courtW;
-          const sy = y0 + Math.max(0.05, Math.min(0.95, currentFrame.shuttle.y_norm)) * courtH;
+        // 1. Render Shuttlecock Trajectory Trail (Smooth EMA Filtered)
+        if (currentFrame.shuttle && currentFrame.shuttle.visible && currentFrame.shuttle.x_norm !== undefined) {
+          const rawSx = x0 + Math.max(0.02, Math.min(0.98, currentFrame.shuttle.x_norm)) * courtW;
+          const rawSy = y0 + Math.max(0.02, Math.min(0.98, currentFrame.shuttle.y_norm)) * courtH;
+
+          // Smooth coordinate filtering across frame ticks
+          const lastPt = shuttleTrailRef.current[shuttleTrailRef.current.length - 1];
+          let sx = rawSx;
+          let sy = rawSy;
+
+          if (lastPt) {
+            // If distance is reasonable, apply gentle smoothing
+            const dist = Math.hypot(rawSx - lastPt.x, rawSy - lastPt.y);
+            if (dist < courtW * 0.4) {
+              sx = 0.45 * lastPt.x + 0.55 * rawSx;
+              sy = 0.45 * lastPt.y + 0.55 * rawSy;
+            }
+          }
 
           shuttleTrailRef.current.push({ x: sx, y: sy, time: Date.now() });
-          if (shuttleTrailRef.current.length > 12) {
+          if (shuttleTrailRef.current.length > 10) {
             shuttleTrailRef.current.shift();
           }
 
@@ -162,17 +176,17 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
               if (i === 0) ctx.moveTo(pt.x, pt.y);
               else ctx.lineTo(pt.x, pt.y);
             }
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
-            ctx.lineWidth = 2.0;
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+            ctx.lineWidth = 2.2;
             ctx.stroke();
           }
 
           // Shuttle glowing white head
           ctx.shadowColor = "#ffffff";
-          ctx.shadowBlur = 10;
+          ctx.shadowBlur = 12;
           ctx.fillStyle = "#ffffff";
           ctx.beginPath();
-          ctx.arc(sx, sy, 5.5, 0, Math.PI * 2);
+          ctx.arc(sx, sy, 5.0, 0, Math.PI * 2);
           ctx.fill();
           ctx.strokeStyle = "#00e5ff";
           ctx.lineWidth = 1.5;

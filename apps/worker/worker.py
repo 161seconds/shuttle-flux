@@ -192,6 +192,28 @@ def process_video_pipeline(match_id: str, video_path: str):
                 elif p.get("player_id") == 2:
                     p["label"] = extracted_names.get("player_2_name", "VĐV 2 (Xa)")
 
+        # Global Trajectory Anti-Jitter Smoothing for Shuttlecock
+        visible_shuttle_frames = [
+            (i, rec["shuttle"])
+            for i, rec in enumerate(frame_records)
+            if rec.get("shuttle", {}).get("visible", False) and "x_norm" in rec.get("shuttle", {})
+        ]
+        if len(visible_shuttle_frames) >= 3:
+            for k in range(1, len(visible_shuttle_frames) - 1):
+                idx_prev, s_prev = visible_shuttle_frames[k - 1]
+                idx_curr, s_curr = visible_shuttle_frames[k]
+                idx_next, s_next = visible_shuttle_frames[k + 1]
+
+                # Only smooth if frames are consecutive (within 3 frames)
+                if (idx_curr - idx_prev <= 3) and (idx_next - idx_curr <= 3):
+                    s_curr["x_norm"] = round(0.22 * s_prev["x_norm"] + 0.56 * s_curr["x_norm"] + 0.22 * s_next["x_norm"], 4)
+                    s_curr["y_norm"] = round(0.22 * s_prev["y_norm"] + 0.56 * s_curr["y_norm"] + 0.22 * s_next["y_norm"], 4)
+                    if "center_norm" in s_curr and "center_norm" in s_prev and "center_norm" in s_next:
+                        s_curr["center_norm"] = [
+                            round(0.22 * s_prev["center_norm"][0] + 0.56 * s_curr["center_norm"][0] + 0.22 * s_next["center_norm"][0], 4),
+                            round(0.22 * s_prev["center_norm"][1] + 0.56 * s_curr["center_norm"][1] + 0.22 * s_next["center_norm"][1], 4),
+                        ]
+
         # Step 5: Analytics Calculation
         update_job_status(match_id, status="processing", progress=85, stage="analytics")
         analytics_result = run_full_analytics(
