@@ -30,6 +30,7 @@ from apps.api.storage import (
     get_match_info,
     get_job_status,
     cancel_job,
+    is_job_cancelled,
     get_analytics_result,
     list_all_matches,
     update_job_status,
