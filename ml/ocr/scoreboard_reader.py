@@ -1,10 +1,10 @@
 """
 Scoreboard & Jersey OCR Reader Module:
 Extracts player names and country codes from badminton broadcast scoreboard HUD
-or near-player jersey back text using OCR and regex pattern matching.
+(Top-Left, Bottom-Left, or Top-Center) and near-player jersey back text using OCR.
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 import re
 import numpy as np
 
@@ -26,7 +26,7 @@ class ScoreboardReader:
         self.reader = None
         if HAS_EASYOCR:
             try:
-                # Initialize reader with English/Latin recognition without progress bar print issues
+                # Initialize reader with English/Latin recognition
                 self.reader = easyocr.Reader(languages, gpu=False, verbose=False)
                 print("[ScoreboardReader] EasyOCR initialized successfully.")
             except Exception as e:
@@ -36,35 +36,41 @@ class ScoreboardReader:
         self, frame: np.ndarray, near_player_bbox: Optional[List[float]] = None
     ) -> Dict[str, Any]:
         """
-        Scans broadcast scoreboard and player jersey to extract real athlete names.
-        Returns:
-          - player_1_name: str
-          - player_2_name: str
-          - confidence: float
-          - source: str
+        Scans broadcast scoreboard HUD (Top-Left, Bottom-Left) and player jersey to extract athlete names.
         """
         h, w, _ = frame.shape
         extracted_names: List[str] = []
 
-        # 1. Check Broadcast Scoreboard Regions (Bottom-Left or Top-Left)
         if self.reader is not None and HAS_OPENCV:
             try:
-                # Bottom-Left HUD Scoreboard (Typical BWF)
-                scoreboard_roi = frame[int(h * 0.70) : int(h * 0.98), int(w * 0.02) : int(w * 0.50)]
-                results = self.reader.readtext(scoreboard_roi)
-                for bbox, text, conf in results:
-                    clean_text = self._clean_player_name(text)
-                    if clean_text and conf > 0.4:
-                        extracted_names.append(clean_text)
+                # Region A: Top-Left BWF Broadcast Scoreboard (e.g., China Open, Denmark Open)
+                top_left_roi = frame[int(h * 0.15) : int(h * 0.42), int(w * 0.05) : int(w * 0.32)]
+                if top_left_roi.size > 0:
+                    results_tl = self.reader.readtext(top_left_roi)
+                    for _, text, conf in results_tl:
+                        clean = self._clean_player_name(text)
+                        if clean and conf > 0.35 and clean not in extracted_names:
+                            extracted_names.append(clean)
 
-                # Top-Left HUD Scoreboard
+                # Region B: Bottom-Left HUD Scoreboard (e.g. World Tour Finals)
                 if len(extracted_names) < 2:
-                    top_roi = frame[int(h * 0.02) : int(h * 0.25), int(w * 0.02) : int(w * 0.50)]
-                    results_top = self.reader.readtext(top_roi)
-                    for bbox, text, conf in results_top:
-                        clean_text = self._clean_player_name(text)
-                        if clean_text and conf > 0.4 and clean_text not in extracted_names:
-                            extracted_names.append(clean_text)
+                    bl_roi = frame[int(h * 0.68) : int(h * 0.98), int(w * 0.02) : int(w * 0.45)]
+                    if bl_roi.size > 0:
+                        results_bl = self.reader.readtext(bl_roi)
+                        for _, text, conf in results_bl:
+                            clean = self._clean_player_name(text)
+                            if clean and conf > 0.35 and clean not in extracted_names:
+                                extracted_names.append(clean)
+
+                # Region C: Top-Center / Header HUD Scoreboard
+                if len(extracted_names) < 2:
+                    top_roi = frame[int(h * 0.02) : int(h * 0.22), int(w * 0.02) : int(w * 0.50)]
+                    if top_roi.size > 0:
+                        results_top = self.reader.readtext(top_roi)
+                        for _, text, conf in results_top:
+                            clean = self._clean_player_name(text)
+                            if clean and conf > 0.35 and clean not in extracted_names:
+                                extracted_names.append(clean)
             except Exception as e:
                 print(f"[ScoreboardReader] Scoreboard OCR warning: {e}")
 
@@ -74,14 +80,16 @@ class ScoreboardReader:
             try:
                 x1, y1, x2, y2 = [int(c) for c in near_player_bbox]
                 # Crop upper back of player
-                jersey_roi = frame[max(0, y1) : min(h, y1 + int((y2 - y1) * 0.5)), max(0, x1) : min(w, x2)]
+                jersey_roi = frame[max(0, y1) : min(h, y1 + int((y2 - y1) * 0.45)), max(0, x1) : min(w, x2)]
                 if jersey_roi.size > 0:
                     j_results = self.reader.readtext(jersey_roi)
-                    for bbox, text, conf in j_results:
-                        clean = re.sub(r"[^A-Z\s]", "", text.upper()).strip()
-                        if len(clean) >= 3 and conf > 0.4:
-                            jersey_name = clean
-                            break
+                    for _, text, conf in j_results:
+                        clean = re.sub(r"[^A-Za-z\s]", "", text).strip()
+                        # Ignore brand names like YONEX, VICTOR, LI-NING
+                        if len(clean) >= 3 and conf > 0.40:
+                            if clean.upper() not in ["YONEX", "VICTOR", "LINING", "LI-NING", "HSBC", "BWF"]:
+                                jersey_name = clean.title()
+                                break
             except Exception as e:
                 print(f"[ScoreboardReader] Jersey OCR warning: {e}")
 
@@ -91,14 +99,17 @@ class ScoreboardReader:
         source = "default"
 
         if len(extracted_names) >= 2:
-            p1_name = extracted_names[0]
-            p2_name = extracted_names[1]
+            # Usually line 1 is Far Player or Near Player depending on service
+            p1_name = extracted_names[1]
+            p2_name = extracted_names[0]
             source = "scoreboard_ocr"
         elif len(extracted_names) == 1:
-            p1_name = extracted_names[0]
+            p2_name = extracted_names[0]
             source = "scoreboard_ocr"
+            if jersey_name:
+                p1_name = jersey_name
         elif jersey_name:
-            p1_name = f"{jersey_name.title()} (Gần)"
+            p1_name = jersey_name
             source = "jersey_ocr"
 
         return {
@@ -106,20 +117,42 @@ class ScoreboardReader:
             "player_2_name": p2_name,
             "confidence": 0.88 if source != "default" else 0.50,
             "source": source,
+            "extracted_list": extracted_names,
         }
 
-    def _clean_player_name(self, text: str) -> Optional[str]:
-        """Cleans and validates recognized athlete name string."""
-        text = text.strip()
-        # Remove numbers and special characters
-        cleaned = re.sub(r"[0-9\-_+=#@!?:;()\[\]]", "", text).strip()
-        # Common BWF words to ignore
-        ignore_words = {"BWF", "WORLD", "TOUR", "FINAL", "SEMIFINAL", "GAME", "MATCH", "SET", "LIVE", "SUPER", "OPEN"}
-        if cleaned.upper() in ignore_words or len(cleaned) < 3:
+    def _clean_player_name(self, raw_text: str) -> Optional[str]:
+        """
+        Cleans OCR text to isolate valid player names.
+        Filters out sponsor brands, numbers, scores, and tournament logos.
+        """
+        if not raw_text:
             return None
 
-        # Format as Title Case (e.g. K. Naraoka or Axelsen)
-        parts = cleaned.split()
-        if len(parts) >= 1:
-            return " ".join([p.capitalize() for p in parts])
-        return None
+        text = raw_text.strip()
+
+        # Discard pure numbers, scores (e.g., "17", "21 15", "1-0")
+        if re.match(r"^[\d\s\-\:\.\/]+$", text):
+            return None
+
+        # Discard common broadcast HUD keywords & sponsors
+        ignore_words = [
+            "HSBC", "VICTOR", "YONEX", "BWF", "WORLD", "TOUR", "SUPER",
+            "GANTEN", "TOTAL", "TOTALENERGIES", "CHENGDU", "CHANGZHOU",
+            "ODENSE", "DENMARK", "OPEN", "CHINA", "ALL", "ENGLAND",
+            "SINGLES", "DOUBLES", "GAME", "MATCH", "SET", "LIVE", "FINAL"
+        ]
+
+        text_upper = text.upper()
+        for kw in ignore_words:
+            if kw in text_upper and len(text_upper) < len(kw) + 4:
+                return None
+
+        # Extract names with capital letters (e.g., "VITIDSARN K", "NARAOKA K", "AXELSEN")
+        clean = re.sub(r"[^A-Za-z\s\.\-]", "", text).strip()
+
+        # Remove single characters or noise
+        if len(clean) < 3:
+            return None
+
+        # If country code at end (e.g. "VITIDSARN K THA"), clean formatting
+        return clean.title()

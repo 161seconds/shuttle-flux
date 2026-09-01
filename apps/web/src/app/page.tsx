@@ -143,6 +143,8 @@ export default function Home() {
             onFileUpload={handleFileUpload}
             onYouTubeSubmit={handleYouTubeSubmit}
             onCancel={handleCancelProcessing}
+            onLoadDemo={handleLoadDemo}
+            isLoadingDemo={isLoadingDemo}
             processingStatus={processingStatus}
             isUploading={isUploading}
           />
@@ -180,24 +182,49 @@ function generateClientDemoMock(): MatchAnalytics {
   const frame_records = [];
   for (let f = 0; f < 600; f += 2) {
     const t = f / 30.0;
+    // P1 (Near Player - Cyan): Bottom half of 2D court (y in 0.65 - 0.88)
     const p1_x = 0.5 + 0.2 * Math.sin(t * 1.5);
-    const p1_y = 0.25 + 0.12 * Math.cos(t * 1.2);
+    const p1_y = 0.75 + 0.12 * Math.cos(t * 1.2);
+
+    // P2 (Far Player - Amber): Top half of 2D court across net (y in 0.15 - 0.35)
     const p2_x = 0.5 - 0.22 * Math.sin(t * 1.4);
-    const p2_y = 0.75 + 0.1 * Math.cos(t * 1.1);
+    const p2_y = 0.25 + 0.1 * Math.cos(t * 1.1);
+
     const shuttle_x = 0.5 + 0.25 * Math.cos(t * 2.5);
-    const shuttle_y = 0.5 + 0.38 * Math.sin(t * 2.8);
+    const shuttle_y = 0.5 + 0.35 * Math.sin(t * 2.8);
+
+    const p1_bx1 = Math.max(0.05, p1_x - 0.06);
+    const p1_bx2 = Math.min(0.95, p1_x + 0.06);
+    const p2_bx1 = Math.max(0.05, p2_x - 0.04);
+    const p2_bx2 = Math.min(0.95, p2_x + 0.04);
 
     frame_records.push({
       frame_idx: f,
       timestamp: parseFloat(t.toFixed(2)),
       players: [
-        { player_id: 1, x_norm: parseFloat(p1_x.toFixed(3)), y_norm: parseFloat(p1_y.toFixed(3)) },
-        { player_id: 2, x_norm: parseFloat(p2_x.toFixed(3)), y_norm: parseFloat(p2_y.toFixed(3)) },
+        {
+          player_id: 1,
+          label: "Player 1 (Viktor A.)",
+          x_norm: parseFloat(p1_x.toFixed(3)),
+          y_norm: parseFloat(p1_y.toFixed(3)),
+          bbox_norm: [parseFloat(p1_bx1.toFixed(3)), 0.65, parseFloat(p1_bx2.toFixed(3)), 0.90] as [number, number, number, number],
+          confidence: 0.95,
+        },
+        {
+          player_id: 2,
+          label: "Player 2 (Shi Y.)",
+          x_norm: parseFloat(p2_x.toFixed(3)),
+          y_norm: parseFloat(p2_y.toFixed(3)),
+          bbox_norm: [parseFloat(p2_bx1.toFixed(3)), 0.42, parseFloat(p2_bx2.toFixed(3)), 0.55] as [number, number, number, number],
+          confidence: 0.93,
+        },
       ],
       shuttle: {
         x_norm: parseFloat(shuttle_x.toFixed(3)),
         y_norm: parseFloat(shuttle_y.toFixed(3)),
+        center_norm: [parseFloat(shuttle_x.toFixed(3)), parseFloat((0.48 + 0.35 * (shuttle_y - 0.5)).toFixed(3))] as [number, number],
         visible: true,
+        confidence: 0.90,
       },
     });
   }

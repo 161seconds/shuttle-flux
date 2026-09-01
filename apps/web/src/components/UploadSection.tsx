@@ -17,6 +17,8 @@ interface UploadSectionProps {
   onFileUpload: (file: File) => void;
   onYouTubeSubmit: (url: string) => void;
   onCancel?: () => void;
+  onLoadDemo?: () => void;
+  isLoadingDemo?: boolean;
   processingStatus: ProcessingStatus | null;
   isUploading: boolean;
 }
@@ -25,6 +27,8 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
   onFileUpload,
   onYouTubeSubmit,
   onCancel,
+  onLoadDemo,
+  isLoadingDemo,
   processingStatus,
   isUploading,
 }) => {
@@ -128,30 +132,44 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
 
       {!processingStatus ? (
         <div className="glass-panel rounded-2xl p-6 border border-gray-700 shadow-2xl">
-          {/* Tab Selector */}
-          <div className="flex border-b border-gray-800 mb-6">
-            <button
-              onClick={() => setActiveTab("youtube")}
-              className={`flex items-center space-x-2 py-3 px-6 font-semibold text-sm transition-all border-b-2 ${
-                activeTab === "youtube"
-                  ? "border-red-500 text-white bg-red-950/20"
-                  : "border-transparent text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              <Youtube className="w-4 h-4 text-red-500" />
-              <span>Dán Link YouTube</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("file")}
-              className={`flex items-center space-x-2 py-3 px-6 font-semibold text-sm transition-all border-b-2 ${
-                activeTab === "file"
-                  ? "border-brand-cyan text-white bg-cyan-950/20"
-                  : "border-transparent text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              <UploadCloud className="w-4 h-4 text-brand-cyan" />
-              <span>Tải Tệp Video Từ Máy</span>
-            </button>
+          {/* Tab Selector & Quick Demo Button */}
+          <div className="flex flex-wrap items-center justify-between border-b border-gray-800 mb-6 gap-2">
+            <div className="flex">
+              <button
+                onClick={() => setActiveTab("youtube")}
+                className={`flex items-center space-x-2 py-3 px-6 font-semibold text-sm transition-all border-b-2 ${
+                  activeTab === "youtube"
+                    ? "border-red-500 text-white bg-red-950/20"
+                    : "border-transparent text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                <Youtube className="w-4 h-4 text-red-500" />
+                <span>Dán Link YouTube</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("file")}
+                className={`flex items-center space-x-2 py-3 px-6 font-semibold text-sm transition-all border-b-2 ${
+                  activeTab === "file"
+                    ? "border-brand-cyan text-white bg-cyan-950/20"
+                    : "border-transparent text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                <UploadCloud className="w-4 h-4 text-brand-cyan" />
+                <span>Tải Tệp Video Từ Máy</span>
+              </button>
+            </div>
+
+            {onLoadDemo && (
+              <button
+                type="button"
+                onClick={onLoadDemo}
+                disabled={isLoadingDemo}
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 via-brand-cyan/20 to-amber-500/20 hover:from-cyan-500/30 hover:to-amber-500/30 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition-all shadow-md shadow-cyan-500/10 mb-2 sm:mb-0"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-brand-cyan" />
+                <span>{isLoadingDemo ? "Đang tải mẫu..." : "⚡ Xem Demo Trực Tiếp"}</span>
+              </button>
+            )}
           </div>
 
           {activeTab === "youtube" ? (

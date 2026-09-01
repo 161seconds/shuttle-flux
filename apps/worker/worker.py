@@ -92,15 +92,15 @@ def process_video_pipeline(match_id: str, video_path: str):
             # Run tracking
             tracked = tracker.update(raw_dets, frame_idx, timestamp)
 
-            # One-shot Scoreboard & Jersey OCR scan on single keyframe (takes <1s total)
-            if not ocr_scanned and frame_count >= 6:
-                ocr_scanned = True
+            # Scoreboard & Jersey OCR scan (scans frames 6, 25, 60 until both names found)
+            if (not ocr_scanned or len(extracted_names.get("extracted_list", [])) < 2) and frame_count in [6, 25, 60]:
                 try:
                     near_box = tracked.get("players", [{}])[0].get("bbox") if tracked.get("players") else None
                     ocr_res = scoreboard_reader.extract_player_names_from_frame(frame, near_player_bbox=near_box)
                     if ocr_res.get("source") != "default":
                         extracted_names = ocr_res
-                        print(f"[Worker OCR] Extracted player names: {extracted_names}")
+                        ocr_scanned = True
+                        print(f"[Worker OCR] Extracted player names on frame {frame_idx}: {extracted_names}")
                 except Exception as ocr_err:
                     print(f"[Worker OCR Warning] {ocr_err}")
 
@@ -169,6 +169,14 @@ def process_video_pipeline(match_id: str, video_path: str):
                 current_pct = min(80, int(50 + (frame_idx / total_frames) * 30))
                 update_job_status(match_id, status="processing", progress=current_pct, stage="detection_and_tracking")
 
+        # Propagate final OCR extracted names to all frames
+        for rec in frame_records:
+            for p in rec.get("players", []):
+                if p.get("player_id") == 1:
+                    p["label"] = extracted_names.get("player_1_name", "VĐV 1 (Gần)")
+                elif p.get("player_id") == 2:
+                    p["label"] = extracted_names.get("player_2_name", "VĐV 2 (Xa)")
+
         # Step 5: Analytics Calculation
         update_job_status(match_id, status="processing", progress=85, stage="analytics")
         analytics_result = run_full_analytics(
@@ -181,8 +189,9 @@ def process_video_pipeline(match_id: str, video_path: str):
 
         update_job_status(match_id, status="processing", progress=95, stage="completed")
 
-        # Attach frame records for frontend Radar and Video Player synchronization
+        # Attach frame records and scoreboard info
         analytics_result["frame_records"] = frame_records
+        analytics_result["scoreboard"] = extracted_names
 
         # Step 6: Persist Results
         save_analytics_result(match_id, analytics_result)

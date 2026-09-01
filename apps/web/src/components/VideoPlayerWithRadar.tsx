@@ -532,8 +532,41 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
               {/* Synchronized AI Tracking Overlays */}
               {showOverlays && (
                 <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between z-20">
-                  {/* Top Right HUD */}
-                  <div className="flex justify-between items-center text-[11px] font-mono text-cyan-300 bg-black/85 px-3 py-1 rounded-lg border border-cyan-500/40 w-fit backdrop-blur-md self-end mt-1 shadow-lg">
+                  {/* Top Left BWF Broadcast Scoreboard HUD */}
+                  <div className="flex flex-col bg-black/85 backdrop-blur-md rounded-xl border border-gray-700/80 shadow-2xl p-2.5 min-w-[180px] self-start mt-1 pointer-events-auto">
+                    <div className="flex items-center justify-between border-b border-gray-800 pb-1 mb-1.5 text-[9px] font-bold text-gray-400">
+                      <span className="flex items-center space-x-1 text-cyan-300">
+                        <Sparkles className="w-3 h-3 text-brand-cyan" />
+                        <span>BẢNG ĐIỂM TRẬN ĐẤU</span>
+                      </span>
+                      <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">
+                        BWF HUD
+                      </span>
+                    </div>
+                    {/* Player 2 (Far - Top Line) */}
+                    <div className="flex items-center justify-between py-0.5 text-xs font-bold">
+                      <div className="flex items-center space-x-1.5 truncate max-w-[135px]">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50 flex-shrink-0" />
+                        <span className="text-gray-100 truncate">{p2Name}</span>
+                      </div>
+                      <span className="text-[10px] px-1 py-0.2 bg-amber-950 text-amber-400 rounded border border-amber-800/80 font-mono ml-2">
+                        P2
+                      </span>
+                    </div>
+                    {/* Player 1 (Near - Bottom Line) */}
+                    <div className="flex items-center justify-between py-0.5 text-xs font-bold mt-0.5">
+                      <div className="flex items-center space-x-1.5 truncate max-w-[135px]">
+                        <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50 flex-shrink-0" />
+                        <span className="text-gray-100 truncate">{p1Name}</span>
+                      </div>
+                      <span className="text-[10px] px-1 py-0.2 bg-cyan-950 text-cyan-400 rounded border border-cyan-800/80 font-mono ml-2">
+                        P1
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Top Right HUD Frame Counter */}
+                  <div className="absolute top-4 right-4 flex items-center text-[11px] font-mono text-cyan-300 bg-black/85 px-3 py-1.5 rounded-lg border border-cyan-500/40 backdrop-blur-md shadow-lg">
                     <span>FRAME: {currentFrame ? currentFrame.frame_idx : 0}</span>
                     <span className="ml-3 font-bold text-white">
                       THỜI GIAN: {currentTime.toFixed(2)}s
