@@ -48,18 +48,33 @@ def process_video_pipeline(match_id: str, video_path: str):
         if is_job_cancelled(match_id):
             return
 
-        # Step 2: Court Calibration
+        # Step 2: Dynamic Court Calibration (from actual video frame)
         update_job_status(match_id, status="processing", progress=38, stage="court_calibration")
         calibrator = CourtCalibrator(is_doubles=False)
+        court_detector = CourtKeypointDetector()
+
+        # Read sample frame from video to detect actual court nodes
+        sample_frame = None
+        for _, _, f_img in frame_generator(video_path, max_frames=5):
+            sample_frame = f_img
+            break
+
         vid_w = float(metadata.get("width", 1280))
         vid_h = float(metadata.get("height", 720))
-        # Use accurate BWF broadcast court corner calibration
+
+        if sample_frame is not None:
+            court_kp = court_detector.detect_keypoints(sample_frame)
+        else:
+            dummy = np.zeros((int(vid_h), int(vid_w), 3), dtype=np.uint8)
+            court_kp = court_detector.detect_keypoints(dummy)
+
         calibrator.calibrate_standard_corners(
-            bottom_left_px=(vid_w * 0.18, vid_h * 0.90),
-            bottom_right_px=(vid_w * 0.82, vid_h * 0.90),
-            top_left_px=(vid_w * 0.35, vid_h * 0.52),
-            top_right_px=(vid_w * 0.65, vid_h * 0.52),
+            bottom_left_px=court_kp["corner_bottom_left"],
+            bottom_right_px=court_kp["corner_bottom_right"],
+            top_left_px=court_kp["corner_top_left"],
+            top_right_px=court_kp["corner_top_right"],
         )
+        detected_court_nodes = court_kp.get("normalized_nodes", {})
 
         if is_job_cancelled(match_id):
             return
@@ -189,9 +204,10 @@ def process_video_pipeline(match_id: str, video_path: str):
 
         update_job_status(match_id, status="processing", progress=95, stage="completed")
 
-        # Attach frame records and scoreboard info
+        # Attach frame records, scoreboard info, and dynamic court nodes
         analytics_result["frame_records"] = frame_records
         analytics_result["scoreboard"] = extracted_names
+        analytics_result["court_nodes"] = detected_court_nodes
 
         # Step 6: Persist Results
         save_analytics_result(match_id, analytics_result)

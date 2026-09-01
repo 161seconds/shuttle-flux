@@ -18,6 +18,9 @@ import {
   X,
   UserCheck,
   Grid,
+  Crosshair,
+  Sliders,
+  Move,
 } from "lucide-react";
 import { MatchAnalytics, FrameRecord, API_BASE_URL, updatePlayerNames } from "../lib/api";
 import { RadarCanvas } from "./RadarCanvas";
@@ -56,12 +59,37 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   const [p2Input, setP2Input] = useState(p2Name);
   const [isSavingNames, setIsSavingNames] = useState(false);
 
+  // Flexible Video Court Nodes State (Auto-detected per video, dynamically draggable)
+  const defaultCourtNodes = {
+    top_left: (analytics.court_nodes?.top_left || [0.35, 0.52]) as [number, number],
+    top_right: (analytics.court_nodes?.top_right || [0.65, 0.52]) as [number, number],
+    bottom_left: (analytics.court_nodes?.bottom_left || [0.18, 0.90]) as [number, number],
+    bottom_right: (analytics.court_nodes?.bottom_right || [0.82, 0.90]) as [number, number],
+  };
+
+  const [courtNodes, setCourtNodes] = useState(defaultCourtNodes);
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  const [activeDraggingNode, setActiveDraggingNode] = useState<string | null>(null);
+  const svgMeshRef = useRef<SVGSVGElement>(null);
+
   const rawVideoRef = useRef<HTMLVideoElement>(null);
   const aiVideoRef = useRef<HTMLVideoElement>(null);
 
   const frameRecords = analytics.frame_records || [];
   const matchId = analytics.metadata.match_id;
   const videoSrc = `${API_BASE_URL}/api/v1/matches/${matchId}/video`;
+
+  // Update dynamic court nodes when video/analytics changes
+  useEffect(() => {
+    if (analytics.court_nodes) {
+      setCourtNodes({
+        top_left: analytics.court_nodes.top_left || [0.35, 0.52],
+        top_right: analytics.court_nodes.top_right || [0.65, 0.52],
+        bottom_left: analytics.court_nodes.bottom_left || [0.18, 0.90],
+        bottom_right: analytics.court_nodes.bottom_right || [0.82, 0.90],
+      });
+    }
+  }, [analytics]);
 
   // Update names if analytics changes
   useEffect(() => {
@@ -74,6 +102,55 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
       setP2Input(analytics.players.player_2.label);
     }
   }, [analytics]);
+
+  const handlePointerDown = (nodeKey: string, e: React.PointerEvent) => {
+    if (!isCalibrating) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveDraggingNode(nodeKey);
+    (e.target as Element).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!activeDraggingNode || !svgMeshRef.current) return;
+    const rect = svgMeshRef.current.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const xNorm = Math.min(0.98, Math.max(0.02, (e.clientX - rect.left) / rect.width));
+    const yNorm = Math.min(0.98, Math.max(0.02, (e.clientY - rect.top) / rect.height));
+
+    setCourtNodes((prev) => ({
+      ...prev,
+      [activeDraggingNode]: [parseFloat(xNorm.toFixed(3)), parseFloat(yNorm.toFixed(3))],
+    }));
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (activeDraggingNode) {
+      try {
+        (e.target as Element).releasePointerCapture(e.pointerId);
+      } catch {}
+      setActiveDraggingNode(null);
+    }
+  };
+
+  const handleResetNodes = () => {
+    if (analytics.court_nodes) {
+      setCourtNodes({
+        top_left: analytics.court_nodes.top_left || [0.35, 0.52],
+        top_right: analytics.court_nodes.top_right || [0.65, 0.52],
+        bottom_left: analytics.court_nodes.bottom_left || [0.18, 0.90],
+        bottom_right: analytics.court_nodes.bottom_right || [0.82, 0.90],
+      });
+    } else {
+      setCourtNodes({
+        top_left: [0.35, 0.52],
+        top_right: [0.65, 0.52],
+        bottom_left: [0.18, 0.90],
+        bottom_right: [0.82, 0.90],
+      });
+    }
+  };
 
   const handleSaveNames = async () => {
     try {
@@ -309,6 +386,23 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
             <Layers className="w-3.5 h-3.5" />
             <span>{showVoronoi ? "Voronoi: Bật" : "Voronoi: Tắt"}</span>
           </button>
+
+          {/* Toggle Flexible Court Calibration Mode */}
+          <button
+            onClick={() => {
+              setIsCalibrating(!isCalibrating);
+              setShowCourtMesh(true);
+            }}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+              isCalibrating
+                ? "bg-amber-950/80 border-amber-500 text-amber-300 shadow-md shadow-amber-500/20 ring-1 ring-amber-400"
+                : "bg-surface border-gray-800 text-gray-400 hover:text-gray-200"
+            }`}
+            title="Kéo thả 4 góc sân trực tiếp trên video để khớp với mọi góc quay"
+          >
+            <Sliders className="w-3.5 h-3.5 text-amber-400" />
+            <span>{isCalibrating ? "Đang Căn Chỉnh Sân ⚙️" : "📐 Căn Chỉnh Góc Sân"}</span>
+          </button>
         </div>
       </div>
 
@@ -416,6 +510,30 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                 <span>Thị Giác AI & Theo Dấu</span>
               </div>
 
+              {/* Interactive Calibration Instructions Banner */}
+              {isCalibrating && (
+                <div className="absolute top-12 left-3 right-3 z-30 flex flex-wrap items-center justify-between gap-2 bg-black/90 backdrop-blur-md p-2.5 rounded-xl border border-amber-500/80 shadow-2xl animate-in fade-in">
+                  <div className="flex items-center space-x-2 text-xs text-amber-300 font-semibold">
+                    <Crosshair className="w-4 h-4 text-amber-400 animate-pulse" />
+                    <span>Kéo 4 điểm góc (P_TL, P_TR, P_BL, P_BR) trực tiếp trên video để khớp với sân đấu</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={handleResetNodes}
+                      className="px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-[11px] font-bold transition-all"
+                    >
+                      Reset AI
+                    </button>
+                    <button
+                      onClick={() => setIsCalibrating(false)}
+                      className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-[11px] font-bold shadow-sm transition-all"
+                    >
+                      Xong & Lưu
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {!videoError ? (
                 <video
                   ref={aiVideoRef}
@@ -439,95 +557,153 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                 </div>
               )}
 
-              {/* 3D Perspective Court Nodes & Connected Mesh Grid Overlay */}
-              {showCourtMesh && (
-                <svg
-                  className="absolute inset-0 w-full h-full pointer-events-none z-10"
-                  viewBox="0 0 100 100"
-                  preserveAspectRatio="none"
-                >
-                  {/* Outer Court Perspective Perimeter Polygon (On Green Mat) */}
-                  <polygon
-                    points="35,52 65,52 82,90 18,90"
-                    fill="rgba(16, 185, 129, 0.05)"
-                    stroke="rgba(16, 185, 129, 0.85)"
-                    strokeWidth="0.8"
-                    strokeLinejoin="round"
-                  />
+              {/* 3D Perspective Court Nodes & Connected Mesh Grid Overlay (Flexible & Draggable) */}
+              {showCourtMesh && (() => {
+                const tl = courtNodes.top_left;
+                const tr = courtNodes.top_right;
+                const bl = courtNodes.bottom_left;
+                const br = courtNodes.bottom_right;
 
-                  {/* Net Line (Cyan Neon Dashed) */}
-                  <line
-                    x1="29"
-                    y1="62"
-                    x2="71"
-                    y2="62"
-                    stroke="#00e5ff"
-                    strokeWidth="1.2"
-                    strokeDasharray="1.5, 1"
-                  />
+                const netL: [number, number] = [tl[0] * 0.45 + bl[0] * 0.55, tl[1] * 0.45 + bl[1] * 0.55];
+                const netR: [number, number] = [tr[0] * 0.45 + br[0] * 0.55, tr[1] * 0.45 + br[1] * 0.55];
+                const fslL: [number, number] = [tl[0] * 0.80 + bl[0] * 0.20, tl[1] * 0.80 + bl[1] * 0.20];
+                const fslR: [number, number] = [tr[0] * 0.80 + br[0] * 0.20, tr[1] * 0.80 + br[1] * 0.20];
+                const nslL: [number, number] = [tl[0] * 0.22 + bl[0] * 0.78, tl[1] * 0.22 + bl[1] * 0.78];
+                const nslR: [number, number] = [tr[0] * 0.22 + br[0] * 0.78, tr[1] * 0.22 + br[1] * 0.78];
 
-                  {/* Far Short Service Line */}
-                  <line
-                    x1="33"
-                    y1="56"
-                    x2="67"
-                    y2="56"
-                    stroke="rgba(16, 185, 129, 0.6)"
-                    strokeWidth="0.6"
-                  />
+                const midTop: [number, number] = [(tl[0] + tr[0]) / 2, (tl[1] + tr[1]) / 2];
+                const midFarService: [number, number] = [(fslL[0] + fslR[0]) / 2, (fslL[1] + fslR[1]) / 2];
+                const midNearService: [number, number] = [(nslL[0] + nslR[0]) / 2, (nslL[1] + nslR[1]) / 2];
+                const midBottom: [number, number] = [(bl[0] + br[0]) / 2, (bl[1] + br[1]) / 2];
 
-                  {/* Near Short Service Line */}
-                  <line
-                    x1="24"
-                    y1="75"
-                    x2="76"
-                    y2="75"
-                    stroke="rgba(16, 185, 129, 0.6)"
-                    strokeWidth="0.6"
-                  />
+                return (
+                  <svg
+                    ref={svgMeshRef}
+                    className={`absolute inset-0 w-full h-full z-10 ${
+                      isCalibrating ? "pointer-events-auto cursor-crosshair" : "pointer-events-none"
+                    }`}
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                  >
+                    {/* Outer Court Perspective Perimeter Polygon */}
+                    <polygon
+                      points={`${tl[0] * 100},${tl[1] * 100} ${tr[0] * 100},${tr[1] * 100} ${br[0] * 100},${br[1] * 100} ${bl[0] * 100},${bl[1] * 100}`}
+                      fill={isCalibrating ? "rgba(245, 158, 11, 0.12)" : "rgba(16, 185, 129, 0.06)"}
+                      stroke={isCalibrating ? "rgba(245, 158, 11, 0.95)" : "rgba(16, 185, 129, 0.85)"}
+                      strokeWidth={isCalibrating ? "1.2" : "0.8"}
+                      strokeLinejoin="round"
+                    />
 
-                  {/* Center Longitudinal Line */}
-                  <line
-                    x1="50"
-                    y1="52"
-                    x2="50"
-                    y2="56"
-                    stroke="rgba(16, 185, 129, 0.5)"
-                    strokeWidth="0.5"
-                  />
-                  <line
-                    x1="50"
-                    y1="75"
-                    x2="50"
-                    y2="90"
-                    stroke="rgba(16, 185, 129, 0.5)"
-                    strokeWidth="0.5"
-                  />
+                    {/* Net Line (Cyan Neon Dashed) */}
+                    <line
+                      x1={netL[0] * 100}
+                      y1={netL[1] * 100}
+                      x2={netR[0] * 100}
+                      y2={netR[1] * 100}
+                      stroke="#00e5ff"
+                      strokeWidth="1.4"
+                      strokeDasharray="1.5, 1"
+                    />
 
-                  {/* Court Corner Landmark Nodes (Glowing Points on Floor) */}
-                  {[
-                    { cx: 35, cy: 52, label: "P_TL" },
-                    { cx: 65, cy: 52, label: "P_TR" },
-                    { cx: 82, cy: 90, label: "P_BR" },
-                    { cx: 18, cy: 90, label: "P_BL" },
-                    { cx: 29, cy: 62, label: "Net_L" },
-                    { cx: 71, cy: 62, label: "Net_R" },
-                  ].map((node) => (
-                    <g key={node.label}>
-                      <circle cx={node.cx} cy={node.cy} r="1.2" fill="#10b981" />
-                      <circle
-                        cx={node.cx}
-                        cy={node.cy}
-                        r="2.2"
-                        fill="none"
-                        stroke="#00e5ff"
-                        strokeWidth="0.4"
-                        opacity="0.9"
-                      />
-                    </g>
-                  ))}
-                </svg>
-              )}
+                    {/* Far Short Service Line */}
+                    <line
+                      x1={fslL[0] * 100}
+                      y1={fslL[1] * 100}
+                      x2={fslR[0] * 100}
+                      y2={fslR[1] * 100}
+                      stroke="rgba(16, 185, 129, 0.6)"
+                      strokeWidth="0.6"
+                    />
+
+                    {/* Near Short Service Line */}
+                    <line
+                      x1={nslL[0] * 100}
+                      y1={nslL[1] * 100}
+                      x2={nslR[0] * 100}
+                      y2={nslR[1] * 100}
+                      stroke="rgba(16, 185, 129, 0.6)"
+                      strokeWidth="0.6"
+                    />
+
+                    {/* Center Longitudinal Line */}
+                    <line
+                      x1={midTop[0] * 100}
+                      y1={midTop[1] * 100}
+                      x2={midFarService[0] * 100}
+                      y2={midFarService[1] * 100}
+                      stroke="rgba(16, 185, 129, 0.5)"
+                      strokeWidth="0.5"
+                    />
+                    <line
+                      x1={midNearService[0] * 100}
+                      y1={midNearService[1] * 100}
+                      x2={midBottom[0] * 100}
+                      y2={midBottom[1] * 100}
+                      stroke="rgba(16, 185, 129, 0.5)"
+                      strokeWidth="0.5"
+                    />
+
+                    {/* Landmark & Draggable Corner Nodes */}
+                    {[
+                      { key: "top_left", cx: tl[0] * 100, cy: tl[1] * 100, label: "P_TL", draggable: true },
+                      { key: "top_right", cx: tr[0] * 100, cy: tr[1] * 100, label: "P_TR", draggable: true },
+                      { key: "bottom_right", cx: br[0] * 100, cy: br[1] * 100, label: "P_BR", draggable: true },
+                      { key: "bottom_left", cx: bl[0] * 100, cy: bl[1] * 100, label: "P_BL", draggable: true },
+                      { key: "net_l", cx: netL[0] * 100, cy: netL[1] * 100, label: "Net_L", draggable: false },
+                      { key: "net_r", cx: netR[0] * 100, cy: netR[1] * 100, label: "Net_R", draggable: false },
+                    ].map((node) => (
+                      <g
+                        key={node.key}
+                        onPointerDown={node.draggable ? (e) => handlePointerDown(node.key, e) : undefined}
+                        className={node.draggable && isCalibrating ? "cursor-grab active:cursor-grabbing" : ""}
+                      >
+                        {/* Glowing Pulse Ring in Calibration Mode */}
+                        {isCalibrating && node.draggable && (
+                          <circle
+                            cx={node.cx}
+                            cy={node.cy}
+                            r="5.5"
+                            fill="rgba(245, 158, 11, 0.25)"
+                            stroke="#f59e0b"
+                            strokeWidth="0.6"
+                            strokeDasharray="1, 1"
+                          />
+                        )}
+                        <circle
+                          cx={node.cx}
+                          cy={node.cy}
+                          r={isCalibrating && node.draggable ? "3.2" : "1.4"}
+                          fill={isCalibrating && node.draggable ? "#f59e0b" : "#10b981"}
+                        />
+                        <circle
+                          cx={node.cx}
+                          cy={node.cy}
+                          r={isCalibrating && node.draggable ? "4.2" : "2.4"}
+                          fill="none"
+                          stroke={isCalibrating && node.draggable ? "#ffffff" : "#00e5ff"}
+                          strokeWidth={isCalibrating && node.draggable ? "0.8" : "0.4"}
+                          opacity="0.95"
+                        />
+                        {isCalibrating && node.draggable && (
+                          <text
+                            x={node.cx}
+                            y={node.cy - 5}
+                            textAnchor="middle"
+                            fill="#ffffff"
+                            fontSize="3"
+                            fontWeight="bold"
+                            className="select-none font-mono drop-shadow"
+                          >
+                            {node.label}
+                          </text>
+                        )}
+                      </g>
+                    ))}
+                  </svg>
+                );
+              })()}
 
               {/* Synchronized AI Tracking Overlays */}
               {showOverlays && (

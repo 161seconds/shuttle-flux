@@ -369,6 +369,18 @@ async def create_demo_match():
             "player_1": {"max_density": 12.4, "grid_size": [30, 60], "grid": []},
             "player_2": {"max_density": 14.1, "grid_size": [30, 60], "grid": []},
         },
+        "court_nodes": {
+            "top_left": [0.35, 0.52],
+            "top_right": [0.65, 0.52],
+            "net_left": [0.29, 0.62],
+            "net_right": [0.71, 0.62],
+            "far_service_left": [0.33, 0.56],
+            "far_service_right": [0.67, 0.56],
+            "near_service_left": [0.24, 0.75],
+            "near_service_right": [0.76, 0.75],
+            "bottom_left": [0.18, 0.90],
+            "bottom_right": [0.82, 0.90],
+        },
         "frame_records": [],
     }
 
