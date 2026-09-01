@@ -27,24 +27,21 @@ class ShuttleTrajectoryTracker:
         if detection and detection.get("visible", False):
             self.state = "DETECTED"
             self.missing_count = 0
-            curr_point = {
-                "frame_idx": frame_idx,
-                "timestamp": timestamp,
-                "x_norm": detection.get("x_norm", 0.5),
-                "y_norm": detection.get("y_norm", 0.5),
-                "visible": True,
-                "confidence": detection.get("confidence", 0.8),
-                "speed_norm": 0.0,
-            }
+            curr_point = dict(detection)
+            curr_point["frame_idx"] = frame_idx
+            curr_point["timestamp"] = timestamp
+            curr_point["visible"] = True
+            curr_point["confidence"] = detection.get("confidence", 0.85)
 
             if len(self.trajectory_history) > 0:
                 prev = self.trajectory_history[-1]
                 dt = max(0.001, timestamp - prev["timestamp"])
-                dist = np.sqrt(
-                    (curr_point["x_norm"] - prev["x_norm"]) ** 2
-                    + (curr_point["y_norm"] - prev["y_norm"]) ** 2
-                )
-                curr_point["speed_norm"] = round(float(dist / dt), 3)
+                if "x_norm" in curr_point and "x_norm" in prev:
+                    dist = np.sqrt(
+                        (curr_point["x_norm"] - prev["x_norm"]) ** 2
+                        + (curr_point["y_norm"] - prev["y_norm"]) ** 2
+                    )
+                    curr_point["speed_norm"] = round(float(dist / dt), 3)
 
             self.trajectory_history.append(curr_point)
             return curr_point
@@ -53,13 +50,14 @@ class ShuttleTrajectoryTracker:
             self.missing_count += 1
             if self.missing_count <= self.max_missing_frames and len(self.trajectory_history) > 0:
                 self.state = "TEMPORARILY_MISSING"
-                # Keep last known position or linear projection
+                # Keep last known position with linear extrapolation
                 last = self.trajectory_history[-1]
                 interpolated = dict(last)
                 interpolated["frame_idx"] = frame_idx
                 interpolated["timestamp"] = timestamp
-                interpolated["visible"] = False
-                interpolated["confidence"] = max(0.1, last["confidence"] * 0.8)
+                # Keep visible for up to 3 frames during fast racket swings
+                interpolated["visible"] = self.missing_count <= 3
+                interpolated["confidence"] = max(0.2, last.get("confidence", 0.8) * 0.7)
                 self.trajectory_history.append(interpolated)
                 return interpolated
             else:
