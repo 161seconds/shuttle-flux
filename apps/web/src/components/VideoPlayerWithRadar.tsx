@@ -21,6 +21,7 @@ import {
   Crosshair,
   Sliders,
   Move,
+  Zap,
 } from "lucide-react";
 import { MatchAnalytics, FrameRecord, ProcessingStatus, API_BASE_URL, updatePlayerNames } from "../lib/api";
 import { RadarCanvas } from "./RadarCanvas";
@@ -141,6 +142,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   const [courtNodes, setCourtNodes] = useState(defaultCourtNodes);
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [activeDraggingNode, setActiveDraggingNode] = useState<string | null>(null);
+  const userHasEditedNodesRef = useRef(false);
   const svgMeshRef = useRef<SVGSVGElement>(null);
 
   const rawVideoRef = useRef<HTMLVideoElement>(null);
@@ -150,9 +152,9 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   const matchId = analytics.metadata.match_id;
   const videoSrc = `${API_BASE_URL}/api/v1/matches/${matchId}/video`;
 
-  // Update dynamic court nodes when video/analytics changes
+  // Update dynamic court nodes ONLY when a new match is loaded (NOT on periodic streaming polling)
   useEffect(() => {
-    if (analytics.court_nodes) {
+    if (analytics.court_nodes && !userHasEditedNodesRef.current) {
       setCourtNodes({
         top_left: analytics.court_nodes.top_left || [0.285, 0.442],
         top_right: analytics.court_nodes.top_right || [0.715, 0.442],
@@ -160,7 +162,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
         bottom_right: analytics.court_nodes.bottom_right || [0.835, 0.895],
       });
     }
-  }, [analytics]);
+  }, [analytics.metadata.match_id]);
 
   // Update names if analytics changes
   useEffect(() => {
@@ -172,12 +174,13 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
       setP2Name(analytics.players.player_2.label);
       setP2Input(analytics.players.player_2.label);
     }
-  }, [analytics]);
+  }, [analytics.players]);
 
   const handlePointerDown = (nodeKey: string, e: React.PointerEvent) => {
     if (!isCalibrating) return;
     e.preventDefault();
     e.stopPropagation();
+    userHasEditedNodesRef.current = true;
     setActiveDraggingNode(nodeKey);
     (e.target as Element).setPointerCapture(e.pointerId);
   };
@@ -206,19 +209,20 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   };
 
   const handleResetNodes = () => {
+    userHasEditedNodesRef.current = false;
     if (analytics.court_nodes) {
       setCourtNodes({
-        top_left: analytics.court_nodes.top_left || [0.35, 0.52],
-        top_right: analytics.court_nodes.top_right || [0.65, 0.52],
-        bottom_left: analytics.court_nodes.bottom_left || [0.18, 0.90],
-        bottom_right: analytics.court_nodes.bottom_right || [0.82, 0.90],
+        top_left: analytics.court_nodes.top_left || [0.285, 0.442],
+        top_right: analytics.court_nodes.top_right || [0.715, 0.442],
+        bottom_left: analytics.court_nodes.bottom_left || [0.165, 0.895],
+        bottom_right: analytics.court_nodes.bottom_right || [0.835, 0.895],
       });
     } else {
       setCourtNodes({
-        top_left: [0.35, 0.52],
-        top_right: [0.65, 0.52],
-        bottom_left: [0.18, 0.90],
-        bottom_right: [0.82, 0.90],
+        top_left: [0.285, 0.442],
+        top_right: [0.715, 0.442],
+        bottom_left: [0.165, 0.895],
+        bottom_right: [0.835, 0.895],
       });
     }
   };
@@ -652,13 +656,21 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                 const netL: [number, number] = [tl[0] + 0.20 * dxL - 0.025, tl[1] + 0.20 * dyL];
                 const netR: [number, number] = [tr[0] + 0.20 * dxR + 0.025, tr[1] + 0.20 * dyR];
 
-                // Far Short Service Line (4.70m from baseline = 35% in 3D -> 11.8% in 2D)
+                // Far Doubles Long Service Line (0.76m inside baseline -> ~2.2% in 2D)
+                const fdslL: [number, number] = [tl[0] + 0.024 * dxL, tl[1] + 0.024 * dyL];
+                const fdslR: [number, number] = [tr[0] + 0.024 * dxR, tr[1] + 0.024 * dyR];
+
+                // Far Short Service Line (4.72m from baseline = 35% in 3D -> 11.8% in 2D)
                 const fslL: [number, number] = [tl[0] + 0.118 * dxL, tl[1] + 0.118 * dyL];
                 const fslR: [number, number] = [tr[0] + 0.118 * dxR, tr[1] + 0.118 * dyR];
 
-                // Near Short Service Line (8.70m from far baseline = 65% in 3D -> 31.7% in 2D)
+                // Near Short Service Line (8.68m from far baseline = 65% in 3D -> 31.7% in 2D)
                 const nslL: [number, number] = [tl[0] + 0.317 * dxL, tl[1] + 0.317 * dyL];
                 const nslR: [number, number] = [tr[0] + 0.317 * dxR, tr[1] + 0.317 * dyR];
+
+                // Near Doubles Long Service Line (0.76m inside near baseline -> ~88% in 2D)
+                const ndslL: [number, number] = [tl[0] + 0.880 * dxL, tl[1] + 0.880 * dyL];
+                const ndslR: [number, number] = [tr[0] + 0.880 * dxR, tr[1] + 0.880 * dyR];
 
                 // Singles Sidelines (Inner Tramlines: 7.5% inset from doubles sidelines)
                 const sTl: [number, number] = [tl[0] + 0.075 * (tr[0] - tl[0]), tl[1]];
@@ -682,31 +694,44 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                   >
-                    {/* Outer Court Perspective Perimeter Polygon (Doubles Boundaries) */}
+                    {/* Outer Court Perimeter Polygon (Full Doubles Boundaries with High Visibility) */}
                     <polygon
                       points={`${tl[0] * 100},${tl[1] * 100} ${tr[0] * 100},${tr[1] * 100} ${br[0] * 100},${br[1] * 100} ${bl[0] * 100},${bl[1] * 100}`}
-                      fill={isCalibrating ? "rgba(245, 158, 11, 0.12)" : "rgba(16, 185, 129, 0.06)"}
-                      stroke={isCalibrating ? "rgba(245, 158, 11, 0.95)" : "rgba(16, 185, 129, 0.85)"}
-                      strokeWidth={isCalibrating ? "1.2" : "0.8"}
+                      fill={isCalibrating ? "rgba(245, 158, 11, 0.14)" : "rgba(16, 185, 129, 0.07)"}
+                      stroke={isCalibrating ? "#f59e0b" : "#10b981"}
+                      strokeWidth={isCalibrating ? "1.4" : "0.9"}
                       strokeLinejoin="round"
                     />
 
-                    {/* Singles Sidelines (Inner Tramlines) */}
+                    {/* Singles Inner Sidelines (Left & Right Tramlines) */}
                     <line
                       x1={sTl[0] * 100}
                       y1={sTl[1] * 100}
                       x2={sBl[0] * 100}
                       y2={sBl[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.55)"
-                      strokeWidth="0.5"
+                      stroke="#10b981"
+                      strokeWidth="0.6"
+                      opacity="0.85"
                     />
                     <line
                       x1={sTr[0] * 100}
                       y1={sTr[1] * 100}
                       x2={sBr[0] * 100}
                       y2={sBr[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.55)"
-                      strokeWidth="0.5"
+                      stroke="#10b981"
+                      strokeWidth="0.6"
+                      opacity="0.85"
+                    />
+
+                    {/* Far Doubles Long Service Line */}
+                    <line
+                      x1={fdslL[0] * 100}
+                      y1={fdslL[1] * 100}
+                      x2={fdslR[0] * 100}
+                      y2={fdslR[1] * 100}
+                      stroke="#10b981"
+                      strokeWidth="0.55"
+                      opacity="0.75"
                     />
 
                     {/* Far Short Service Line */}
@@ -715,39 +740,40 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                       y1={fslL[1] * 100}
                       x2={fslR[0] * 100}
                       y2={fslR[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.65)"
-                      strokeWidth="0.6"
+                      stroke="#10b981"
+                      strokeWidth="0.7"
+                      opacity="0.90"
                     />
 
-                    {/* Realistic Badminton Net with Posts & Cord (Exact Center of Court) */}
+                    {/* Badminton Net with Posts & Cord (Exact Optical Center) */}
                     {/* Vertical Net Post Left */}
                     <line
                       x1={netL[0] * 100}
-                      y1={(netL[1] - 0.035) * 100}
+                      y1={(netL[1] - 0.038) * 100}
                       x2={netL[0] * 100}
                       y2={netL[1] * 100}
                       stroke="#00e5ff"
-                      strokeWidth="1.8"
+                      strokeWidth="2.0"
                       strokeLinecap="round"
                     />
                     {/* Vertical Net Post Right */}
                     <line
                       x1={netR[0] * 100}
-                      y1={(netR[1] - 0.035) * 100}
+                      y1={(netR[1] - 0.038) * 100}
                       x2={netR[0] * 100}
                       y2={netR[1] * 100}
                       stroke="#00e5ff"
-                      strokeWidth="1.8"
+                      strokeWidth="2.0"
                       strokeLinecap="round"
                     />
                     {/* Top White Net Cord */}
                     <line
                       x1={netL[0] * 100}
-                      y1={(netL[1] - 0.032) * 100}
+                      y1={(netL[1] - 0.035) * 100}
                       x2={netR[0] * 100}
-                      y2={(netR[1] - 0.032) * 100}
+                      y2={(netR[1] - 0.035) * 100}
                       stroke="#ffffff"
-                      strokeWidth="1.0"
+                      strokeWidth="1.2"
                     />
                     {/* Net Mesh Band */}
                     <line
@@ -756,8 +782,9 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                       x2={netR[0] * 100}
                       y2={netR[1] * 100}
                       stroke="#00e5ff"
-                      strokeWidth="1.6"
+                      strokeWidth="1.8"
                       strokeDasharray="1.5, 0.8"
+                      opacity="0.85"
                     />
 
                     {/* Near Short Service Line */}
@@ -766,29 +793,43 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                       y1={nslL[1] * 100}
                       x2={nslR[0] * 100}
                       y2={nslR[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.65)"
-                      strokeWidth="0.6"
+                      stroke="#10b981"
+                      strokeWidth="0.7"
+                      opacity="0.90"
                     />
 
-                    {/* Center Longitudinal Line (Far Court & Near Court) */}
+                    {/* Near Doubles Long Service Line */}
+                    <line
+                      x1={ndslL[0] * 100}
+                      y1={ndslL[1] * 100}
+                      x2={ndslR[0] * 100}
+                      y2={ndslR[1] * 100}
+                      stroke="#10b981"
+                      strokeWidth="0.55"
+                      opacity="0.75"
+                    />
+
+                    {/* Center Longitudinal Lines (Dividing Service Courts) */}
                     <line
                       x1={midTop[0] * 100}
                       y1={midTop[1] * 100}
                       x2={midFarService[0] * 100}
                       y2={midFarService[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.55)"
-                      strokeWidth="0.5"
+                      stroke="#10b981"
+                      strokeWidth="0.6"
+                      opacity="0.80"
                     />
                     <line
                       x1={midNearService[0] * 100}
                       y1={midNearService[1] * 100}
                       x2={midBottom[0] * 100}
                       y2={midBottom[1] * 100}
-                      stroke="rgba(16, 185, 129, 0.55)"
-                      strokeWidth="0.5"
+                      stroke="#10b981"
+                      strokeWidth="0.6"
+                      opacity="0.80"
                     />
 
-                    {/* Landmark & Draggable Corner Nodes */}
+                    {/* Landmark Nodes: 4 Draggable Corners + Key Court Junctions */}
                     {[
                       { key: "top_left", cx: tl[0] * 100, cy: tl[1] * 100, label: "P_TL", draggable: true },
                       { key: "top_right", cx: tr[0] * 100, cy: tr[1] * 100, label: "P_TR", draggable: true },
@@ -796,6 +837,8 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                       { key: "bottom_left", cx: bl[0] * 100, cy: bl[1] * 100, label: "P_BL", draggable: true },
                       { key: "net_l", cx: netL[0] * 100, cy: netL[1] * 100, label: "Net_L", draggable: false },
                       { key: "net_r", cx: netR[0] * 100, cy: netR[1] * 100, label: "Net_R", draggable: false },
+                      { key: "fsl_mid", cx: midFarService[0] * 100, cy: midFarService[1] * 100, label: "T_Far", draggable: false },
+                      { key: "nsl_mid", cx: midNearService[0] * 100, cy: midNearService[1] * 100, label: "T_Near", draggable: false },
                     ].map((node) => (
                       <g
                         key={node.key}
@@ -807,26 +850,26 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                           <circle
                             cx={node.cx}
                             cy={node.cy}
-                            r="5.5"
-                            fill="rgba(245, 158, 11, 0.25)"
+                            r="5.8"
+                            fill="rgba(245, 158, 11, 0.30)"
                             stroke="#f59e0b"
-                            strokeWidth="0.6"
+                            strokeWidth="0.8"
                             strokeDasharray="1, 1"
                           />
                         )}
                         <circle
                           cx={node.cx}
                           cy={node.cy}
-                          r={isCalibrating && node.draggable ? "3.2" : "1.4"}
+                          r={isCalibrating && node.draggable ? "3.4" : "1.5"}
                           fill={isCalibrating && node.draggable ? "#f59e0b" : "#10b981"}
                         />
                         <circle
                           cx={node.cx}
                           cy={node.cy}
-                          r={isCalibrating && node.draggable ? "4.2" : "2.4"}
+                          r={isCalibrating && node.draggable ? "4.4" : "2.6"}
                           fill="none"
                           stroke={isCalibrating && node.draggable ? "#ffffff" : "#00e5ff"}
-                          strokeWidth={isCalibrating && node.draggable ? "0.8" : "0.4"}
+                          strokeWidth={isCalibrating && node.draggable ? "0.9" : "0.5"}
                           opacity="0.95"
                         />
                         {isCalibrating && node.draggable && (
@@ -851,61 +894,45 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
               {/* Synchronized AI Tracking Overlays */}
               {showOverlays && (
                 <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between z-20">
-                  {/* Top Left BWF Broadcast Scoreboard HUD (Auto-adapts for 1v1 Singles and 2v2 Doubles) */}
-                  <div className="flex flex-col bg-black/85 backdrop-blur-md rounded-xl border border-gray-700/80 shadow-2xl p-2.5 min-w-[190px] self-start mt-1 pointer-events-auto">
-                    <div className="flex items-center justify-between border-b border-gray-800 pb-1 mb-1.5 text-[9px] font-bold text-gray-400">
-                      <span className="flex items-center space-x-1 text-cyan-300">
-                        <Sparkles className="w-3 h-3 text-brand-cyan" />
-                        <span>BẢNG ĐIỂM TRẬN ĐẤU</span>
-                      </span>
-                      <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">
-                        {isDoublesMatch ? "2v2 ĐÔI" : "1v1 ĐƠN"}
-                      </span>
-                    </div>
-
-                    {/* Team 2 (Far Court) */}
-                    <div className="flex items-center justify-between py-0.5 text-xs font-bold">
-                      <div className="flex items-center space-x-1.5 truncate max-w-[140px]">
-                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50 flex-shrink-0" />
-                        <span className="text-gray-100 truncate">{p2Name}</span>
-                      </div>
-                      <span className="text-[10px] px-1 py-0.2 bg-amber-950 text-amber-400 rounded border border-amber-800/80 font-mono ml-2">
-                        P2
-                      </span>
-                    </div>
-                    {isDoublesMatch && (
-                      <div className="flex items-center justify-between py-0.5 text-xs font-bold">
-                        <div className="flex items-center space-x-1.5 truncate max-w-[140px]">
-                          <span className="w-2.5 h-2.5 rounded-full bg-orange-400 shadow-sm shadow-orange-400/50 flex-shrink-0" />
-                          <span className="text-gray-100 truncate">{p4Name}</span>
+                  {/* Top Left BWF Broadcast Scoreboard HUD (True to Tournament Card Graphic) */}
+                  <div className="flex flex-col bg-white/95 text-gray-900 rounded-xl border border-gray-300 shadow-2xl overflow-hidden min-w-[195px] max-w-[240px] self-start mt-1 pointer-events-auto backdrop-blur-md">
+                    {/* Top Row: Far Player (P2 - YU QI / CHN) */}
+                    <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-gray-200 bg-gradient-to-r from-gray-100 to-white">
+                      <div className="flex items-center space-x-2 truncate">
+                        {/* Country Flag Badge */}
+                        <div className="flex items-center justify-center px-1.5 py-0.5 rounded bg-red-600 text-[9px] font-black text-white tracking-wider shadow-sm flex-shrink-0">
+                          CHN
                         </div>
-                        <span className="text-[10px] px-1 py-0.2 bg-orange-950 text-orange-400 rounded border border-orange-800/80 font-mono ml-2">
-                          P4
+                        <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight truncate">
+                          {p2Name || "YU QI"}
                         </span>
                       </div>
-                    )}
-
-                    {/* Team 1 (Near Court) */}
-                    <div className="flex items-center justify-between py-0.5 text-xs font-bold mt-0.5 border-t border-gray-800/80 pt-1">
-                      <div className="flex items-center space-x-1.5 truncate max-w-[140px]">
-                        <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50 flex-shrink-0" />
-                        <span className="text-gray-100 truncate">{p1Name}</span>
-                      </div>
-                      <span className="text-[10px] px-1 py-0.2 bg-cyan-950 text-cyan-400 rounded border border-cyan-800/80 font-mono ml-2">
-                        P1
-                      </span>
-                    </div>
-                    {isDoublesMatch && (
-                      <div className="flex items-center justify-between py-0.5 text-xs font-bold">
-                        <div className="flex items-center space-x-1.5 truncate max-w-[140px]">
-                          <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shadow-sm shadow-sky-400/50 flex-shrink-0" />
-                          <span className="text-gray-100 truncate">{p3Name}</span>
-                        </div>
-                        <span className="text-[10px] px-1 py-0.2 bg-sky-950 text-sky-400 rounded border border-sky-800/80 font-mono ml-2">
-                          P3
+                      <div className="flex items-center space-x-1.5 flex-shrink-0 ml-2">
+                        <span className="px-2 py-0.5 bg-gray-700 text-white font-black text-xs rounded shadow-inner font-mono">
+                          1
                         </span>
                       </div>
-                    )}
+                    </div>
+
+                    {/* Bottom Row: Near Player (P1 - KEAN YEW / SGP) */}
+                    <div className="flex items-center justify-between px-2.5 py-1.5 bg-white">
+                      <div className="flex items-center space-x-2 truncate">
+                        {/* Country Flag Badge */}
+                        <div className="flex items-center justify-center px-1.5 py-0.5 rounded bg-red-700 text-[9px] font-black text-white tracking-wider shadow-sm flex-shrink-0">
+                          SGP
+                        </div>
+                        <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight truncate">
+                          {p1Name || "KEAN YEW"}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-1.5 flex-shrink-0 ml-2">
+                        {/* Shuttlecock Serving Icon */}
+                        <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500 animate-pulse" />
+                        <span className="px-2 py-0.5 bg-gray-700 text-white font-black text-xs rounded shadow-inner font-mono">
+                          1
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Top Right HUD Frame Counter */}
@@ -916,10 +943,13 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                     </span>
                   </div>
 
-                  {/* Player & Shuttlecock Bounding Boxes (Supports all active players in 1v1 & 2v2) */}
+                  {/* Player & Shuttlecock Bounding Boxes (Strict Singles / Doubles filtering) */}
                   {currentFrame && (
                     <div className="absolute inset-0">
-                      {currentFrame.players.map((p) => {
+                      {(isDoublesMatch
+                        ? currentFrame.players
+                        : currentFrame.players.filter((p) => (p.player_id || 1) <= 2)
+                      ).map((p) => {
                         const pId = p.player_id || 1;
                         const isNear = pId === 1 || pId === 3;
                         const styleConfig = getPlayerStyle(pId);

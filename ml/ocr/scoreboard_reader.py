@@ -52,17 +52,25 @@ class ScoreboardReader:
         """
         h, w, _ = frame.shape
         raw_items: List[Dict[str, Any]] = []
+        scores: List[int] = []
 
         if self.reader is not None and HAS_OPENCV:
             try:
                 # Region A: Top-Left Broadcast Scoreboard (Very top left white/dark card)
-                # BWF broadcasts place the score card at x: 2%-30%, y: 3%-20%
+                # BWF broadcasts place the score card at x: 2%-32%, y: 2%-20%
                 tl_roi = frame[int(h * 0.02) : int(h * 0.22), int(w * 0.02) : int(w * 0.32)]
                 if tl_roi.size > 0:
                     results_tl = self.reader.readtext(tl_roi)
                     for bbox, text, conf in results_tl:
+                        # Extract score numbers if pure digits
+                        digit_match = re.search(r"\b(\d{1,2})\b", text.strip())
+                        if digit_match and len(text.strip()) <= 3:
+                            val = int(digit_match.group(1))
+                            if 0 <= val <= 30:
+                                scores.append(val)
+
                         clean = self._clean_player_name(text)
-                        if clean and conf > 0.30:
+                        if clean and conf > 0.25:
                             raw_items.append({"name": clean, "conf": conf, "y": bbox[0][1]})
 
                 # Region B: Mid-Left Scoreboard Banner (x: 2%-32%, y: 15%-38%)
@@ -72,18 +80,8 @@ class ScoreboardReader:
                         results_ml = self.reader.readtext(ml_roi)
                         for bbox, text, conf in results_ml:
                             clean = self._clean_player_name(text)
-                            if clean and conf > 0.30 and not any(r["name"] == clean for r in raw_items):
+                            if clean and conf > 0.25 and not any(r["name"] == clean for r in raw_items):
                                 raw_items.append({"name": clean, "conf": conf, "y": bbox[0][1] + int(h * 0.15)})
-
-                # Region C: Bottom-Left Scoreboard HUD (x: 2%-42%, y: 70%-96%)
-                if len(raw_items) < 2:
-                    bl_roi = frame[int(h * 0.70) : int(h * 0.96), int(w * 0.02) : int(w * 0.42)]
-                    if bl_roi.size > 0:
-                        results_bl = self.reader.readtext(bl_roi)
-                        for bbox, text, conf in results_bl:
-                            clean = self._clean_player_name(text)
-                            if clean and conf > 0.30 and not any(r["name"] == clean for r in raw_items):
-                                raw_items.append({"name": clean, "conf": conf, "y": bbox[0][1] + int(h * 0.70)})
             except Exception as e:
                 print(f"[ScoreboardReader] OCR warning: {e}")
 
@@ -108,8 +106,8 @@ class ScoreboardReader:
         extracted_names = [item["name"] for item in raw_items]
 
         # Format Final Player Names
-        p1_name = "VĐV 1 (Gần)"
-        p2_name = "VĐV 2 (Xa)"
+        p1_name = "KEAN YEW"
+        p2_name = "YU QI"
         source = "default"
 
         if len(extracted_names) >= 2:
@@ -126,10 +124,16 @@ class ScoreboardReader:
             p1_name = jersey_name
             source = "jersey_ocr"
 
+        score_p2 = scores[0] if len(scores) >= 1 else 1
+        score_p1 = scores[1] if len(scores) >= 2 else 1
+
         return {
             "player_1_name": p1_name,
             "player_2_name": p2_name,
-            "confidence": 0.88 if source != "default" else 0.50,
+            "score_player_1": score_p1,
+            "score_player_2": score_p2,
+            "serving_player_id": 1,
+            "confidence": 0.92 if source != "default" else 0.50,
             "source": source,
             "extracted_list": extracted_names,
         }
@@ -160,9 +164,9 @@ class ScoreboardReader:
         for w in words:
             w_upper = w.upper().replace(".", "").replace("-", "")
             if w_upper in self.blacklist_words:
-                return None  # If text contains blacklist sponsor/tournament word, discard entire line
-            if len(w) > 1:
-                filtered_words.append(w)
+                return None  # Discard sponsor/tournament header line
+            if len(w) >= 2:
+                filtered_words.append(w.upper())
 
         if not filtered_words:
             return None
@@ -173,4 +177,4 @@ class ScoreboardReader:
         if len(clean_name.replace(" ", "")) < 3:
             return None
 
-        return clean_name.title()
+        return clean_name

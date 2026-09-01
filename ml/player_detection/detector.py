@@ -129,36 +129,68 @@ class PlayerDetector:
                 )
 
             if raw_detections:
-                # Near Court players (y_bottom >= 0.58 * h)
-                near_candidates = [d for d in raw_detections if d["bottom_center"][1] >= h * 0.58]
-                # Far Court players (0.40 * h <= y_bottom < 0.60 * h)
-                far_candidates = [d for d in raw_detections if 0.40 * h <= d["bottom_center"][1] < 0.60 * h]
-
-                # Sort near candidates by box area & centrality
-                near_candidates.sort(
-                    key=lambda d: d["box_area"] * (1.0 - abs(d["bottom_center"][0] / w - 0.5) * 0.3),
-                    reverse=True,
-                )
-                # Sort far candidates by confidence & box height & centrality
-                far_candidates.sort(
-                    key=lambda d: d["confidence"] * d["box_h"] * (1.0 - abs(d["bottom_center"][0] / w - 0.5) * 0.3),
-                    reverse=True,
-                )
+                # Sort all valid on-court player detections by y_bottom (ascending: far court players come first, near players last)
+                raw_detections.sort(key=lambda d: d["bottom_center"][1])
 
                 chosen = []
-                # Keep up to 2 near players (Team 1)
-                for i, nc in enumerate(near_candidates[:2]):
-                    nc_copy = dict(nc)
-                    nc_copy["role"] = "near"
-                    nc_copy["rank"] = i + 1
-                    chosen.append(nc_copy)
+                if len(raw_detections) == 1:
+                    # Single player detected
+                    d = raw_detections[0]
+                    d_copy = dict(d)
+                    d_copy["role"] = "near" if d["bottom_center"][1] >= h * 0.62 else "far"
+                    d_copy["rank"] = 1
+                    chosen.append(d_copy)
+                elif len(raw_detections) == 2:
+                    # Standard Singles 1v1: Top one is Far Player, Bottom one is Near Player
+                    far_p = dict(raw_detections[0])
+                    far_p["role"] = "far"
+                    far_p["rank"] = 1
 
-                # Keep up to 2 far players (Team 2)
-                for j, fc in enumerate(far_candidates[:2]):
-                    fc_copy = dict(fc)
-                    fc_copy["role"] = "far"
-                    fc_copy["rank"] = j + 1
-                    chosen.append(fc_copy)
+                    near_p = dict(raw_detections[1])
+                    near_p["role"] = "near"
+                    near_p["rank"] = 1
+
+                    chosen.extend([near_p, far_p])
+                elif len(raw_detections) == 3:
+                    # 3 players: identify whether 2 are far or 2 are near based on optical net line (y ~ 0.53)
+                    far_cands = [d for d in raw_detections if d["bottom_center"][1] < h * 0.58]
+                    near_cands = [d for d in raw_detections if d["bottom_center"][1] >= h * 0.58]
+
+                    if len(far_cands) >= 2:
+                        for j, fc in enumerate(far_cands[:2]):
+                            fc_copy = dict(fc)
+                            fc_copy["role"] = "far"
+                            fc_copy["rank"] = j + 1
+                            chosen.append(fc_copy)
+                        if near_cands:
+                            nc_copy = dict(near_cands[0])
+                            nc_copy["role"] = "near"
+                            nc_copy["rank"] = 1
+                            chosen.append(nc_copy)
+                    else:
+                        if far_cands:
+                            fc_copy = dict(far_cands[0])
+                            fc_copy["role"] = "far"
+                            fc_copy["rank"] = 1
+                            chosen.append(fc_copy)
+                        for i, nc in enumerate(near_cands[:2]):
+                            nc_copy = dict(nc)
+                            nc_copy["role"] = "near"
+                            nc_copy["rank"] = i + 1
+                            chosen.append(nc_copy)
+                else:
+                    # 4 or more players: Top 2 are Far Doubles, Bottom 2 are Near Doubles
+                    for j, fc in enumerate(raw_detections[:2]):
+                        fc_copy = dict(fc)
+                        fc_copy["role"] = "far"
+                        fc_copy["rank"] = j + 1
+                        chosen.append(fc_copy)
+
+                    for i, nc in enumerate(raw_detections[-2:]):
+                        nc_copy = dict(nc)
+                        nc_copy["role"] = "near"
+                        nc_copy["rank"] = i + 1
+                        chosen.append(nc_copy)
 
                 if chosen:
                     return chosen

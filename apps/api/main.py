@@ -84,9 +84,9 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
                         stage="downloading_youtube",
                     )
 
-        # Optimize format to 720p: bypass bot challenge via Android/iOS player clients
+        # Optimize format to 1080p Full HD: bypass bot challenge via Android/iOS player clients
         ydl_opts = {
-            "format": "best[ext=mp4][height<=720]/best[height<=720]/bestvideo[height<=720]+bestaudio/best",
+            "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
             "outtmpl": target_video_path,
             "merge_output_format": "mp4",
             "quiet": False,
@@ -322,11 +322,16 @@ def generate_demo_analytics(match_id: str = "demo") -> Dict[str, Any]:
             "active_play_duration_sec": 21.4,
             "total_distance_player_1_m": 84.6,
             "total_distance_player_2_m": 92.1,
+            "score_player_1": 1,
+            "score_player_2": 1,
+            "serving_player_id": 1,
+            "is_doubles": False,
         },
         "players": {
             "player_1": {
                 "player_id": 1,
-                "label": "Player 1 (Viktor A.)",
+                "label": "KEAN YEW",
+                "country": "SGP",
                 "side": "Near Court (Bottom)",
                 "distance_meters": 84.6,
                 "avg_speed_mps": 3.12,
@@ -343,7 +348,8 @@ def generate_demo_analytics(match_id: str = "demo") -> Dict[str, Any]:
             },
             "player_2": {
                 "player_id": 2,
-                "label": "Player 2 (Shi Y.)",
+                "label": "YU QI",
+                "country": "CHN",
                 "side": "Far Court (Top)",
                 "distance_meters": 92.1,
                 "avg_speed_mps": 3.45,
@@ -447,7 +453,7 @@ def generate_demo_analytics(match_id: str = "demo") -> Dict[str, Any]:
             "players": [
                 {
                     "player_id": 1,
-                    "label": "Player 1 (Viktor A.)",
+                    "label": "KEAN YEW",
                     "x_norm": round(float(p1_x), 3),
                     "y_norm": round(float(p1_y), 3),
                     "bbox": [int(p1_bx1 * 1280), int(0.65 * 720), int(p1_bx2 * 1280), int(0.90 * 720)],
@@ -457,7 +463,7 @@ def generate_demo_analytics(match_id: str = "demo") -> Dict[str, Any]:
                 },
                 {
                     "player_id": 2,
-                    "label": "Player 2 (Shi Y.)",
+                    "label": "YU QI",
                     "x_norm": round(float(p2_x), 3),
                     "y_norm": round(float(p2_y), 3),
                     "bbox": [int(p2_bx1 * 1280), int(0.42 * 720), int(p2_bx2 * 1280), int(0.55 * 720)],
