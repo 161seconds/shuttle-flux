@@ -9,25 +9,35 @@ interface RallyTimelineProps {
 }
 
 export const RallyTimeline: React.FC<RallyTimelineProps> = ({
-  rallies,
+  rallies = [],
   hits = [],
   onSelectRally,
 }) => {
+  const safeRallies = Array.isArray(rallies) ? rallies : [];
+  const safeHits = Array.isArray(hits) ? hits : [];
+
   return (
     <div className="glass-panel rounded-2xl p-6 border border-gray-700 shadow-xl my-8">
       <div className="flex items-center justify-between mb-4 border-b border-gray-800 pb-3">
         <div className="flex items-center space-x-2">
           <Zap className="w-5 h-5 text-brand-amber" />
-          <h3 className="font-bold text-lg text-white">Rally Timeline & Shot Explorer</h3>
+          <h3 className="font-bold text-lg text-white">Phân Đoạn Pha Cầu & Cú Đánh (Rally Timeline)</h3>
         </div>
-        <span className="text-xs text-gray-400">Click any rally to seek video player</span>
+        <span className="text-xs text-gray-400">Nhấn vào từng pha cầu để tua nhanh video</span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {rallies.map((rally) => {
-          const rallyHits = hits.filter(
-            (h) => h.timestamp >= rally.start_time - 0.2 && h.timestamp <= rally.end_time + 0.2
-          );
+      {safeRallies.length === 0 ? (
+        <div className="text-center py-6 text-xs text-gray-400 border border-dashed border-gray-800 rounded-xl bg-surface/50">
+          <Clock className="w-6 h-6 mx-auto mb-2 text-gray-500 animate-spin" />
+          <p className="font-medium text-gray-300">Đang theo dõi & phân đoạn các pha cầu trực tiếp...</p>
+          <p className="text-gray-500 mt-0.5">Các pha cầu (Rallies) và loại cú đánh sẽ tự động xuất hiện tại đây khi trận đấu diễn ra.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {safeRallies.map((rally) => {
+            const rallyHits = safeHits.filter(
+              (h) => h.timestamp >= rally.start_time - 0.2 && h.timestamp <= rally.end_time + 0.2
+            );
 
           return (
             <div
@@ -83,6 +93,7 @@ export const RallyTimeline: React.FC<RallyTimelineProps> = ({
           );
         })}
       </div>
+      )}
     </div>
   );
 };
