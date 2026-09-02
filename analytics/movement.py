@@ -7,7 +7,7 @@ Player Movement Analytics:
 - Tactical Zone Occupancy Distribution
 """
 
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
 from analytics.court import get_court_zone, denormalize_court_coordinates, SINGLES_WIDTH_M, COURT_LENGTH_M
 
@@ -75,7 +75,10 @@ def compute_distance_meters(
 
 
 def compute_speed_profile(
-    positions_norm: np.ndarray, fps: float, is_doubles: bool = False
+    positions_norm: np.ndarray,
+    fps: float,
+    is_doubles: bool = False,
+    timestamps: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     """
     Computes speed metrics:
@@ -84,7 +87,7 @@ def compute_speed_profile(
     - max speed (m/s)
     - active moving time (seconds)
     """
-    if len(positions_norm) < 2 or fps <= 0:
+    if len(positions_norm) < 2 or (timestamps is None and fps <= 0):
         return {
             "instantaneous_speeds_mps": [],
             "avg_speed_mps": 0.0,
@@ -93,7 +96,16 @@ def compute_speed_profile(
             "active_seconds": 0.0,
         }
 
-    dt = 1.0 / fps
+    if timestamps is not None:
+        timestamps = np.asarray(timestamps, dtype=np.float64)
+        if len(timestamps) != len(positions_norm):
+            raise ValueError("timestamps must have the same length as positions_norm")
+        dt = np.diff(timestamps)
+        valid_dt = dt > 0
+    else:
+        dt = np.full(len(positions_norm) - 1, 1.0 / fps, dtype=np.float64)
+        valid_dt = np.ones_like(dt, dtype=bool)
+
     width = 6.10 if is_doubles else 5.18
     length = 13.40
 
@@ -101,18 +113,24 @@ def compute_speed_profile(
     dy = np.diff(positions_norm[:, 1]) * length
     step_distances = np.sqrt(dx**2 + dy**2)
 
-    instantaneous_speeds = step_distances / dt
+    instantaneous_speeds = np.zeros_like(step_distances, dtype=np.float64)
+    instantaneous_speeds[valid_dt] = step_distances[valid_dt] / dt[valid_dt]
 
     # Filter out unrealistic instantaneous speeds (> 12 m/s for human movement) as noise
     filtered_speeds = np.clip(instantaneous_speeds, 0.0, 12.0)
 
     # Threshold for considering player "active/moving" vs standing (0.3 m/s)
     moving_mask = filtered_speeds > 0.3
-    active_seconds = float(np.sum(moving_mask) * dt)
+    active_seconds = float(np.sum(dt[moving_mask & valid_dt]))
 
-    avg_speed = float(np.mean(filtered_speeds)) if len(filtered_speeds) > 0 else 0.0
+    total_valid_time = float(np.sum(dt[valid_dt]))
+    avg_speed = (
+        float(np.sum(filtered_speeds[valid_dt] * dt[valid_dt]) / total_valid_time)
+        if total_valid_time > 0
+        else 0.0
+    )
     max_speed = float(np.percentile(filtered_speeds, 98)) if len(filtered_speeds) > 0 else 0.0
-    total_dist = float(np.sum(step_distances))
+    total_dist = float(np.sum(step_distances[valid_dt]))
 
     return {
         "instantaneous_speeds_mps": [round(float(s), 2) for s in filtered_speeds],

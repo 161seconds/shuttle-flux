@@ -36,7 +36,7 @@ class PlayerStatItem(BaseModel):
     avg_speed_mps: float
     max_speed_mps: float
     active_time_seconds: float
-    zone_occupancy: Dict[str, float] = {}
+    zone_occupancy: Dict[str, float] = Field(default_factory=dict)
 
 
 class RallyItem(BaseModel):

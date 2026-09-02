@@ -24,6 +24,7 @@ from apps.api.storage import (
     update_job_status,
     save_analytics_result,
     save_partial_analytics,
+    clear_partial_analytics,
     is_job_cancelled,
 )
 from ml.ocr.scoreboard_reader import ScoreboardReader
@@ -176,6 +177,16 @@ def process_video_pipeline(match_id: str, video_path: str):
                     "center_norm": [round(float(cx / w), 4), round(float(cy / h), 4)],
                     "visible": True,
                     "confidence": shuttle.get("confidence", 0.85),
+                    "speed_norm": round(
+                        float(
+                            np.hypot(
+                                tracker.shuttle_tracker.velocity[0] / w,
+                                tracker.shuttle_tracker.velocity[1] / h,
+                            )
+                            * (fps / step_stride)
+                        ),
+                        5,
+                    ),
                 }
             else:
                 shuttle_record = {
@@ -195,7 +206,7 @@ def process_video_pipeline(match_id: str, video_path: str):
 
             frame_count += 1
             if frame_count % 8 == 0:
-                current_pct = min(88, int(40 + (frame_idx / max(total_frames, 1)) * 45))
+                current_pct = min(84, int(50 + (frame_idx / max(total_frames, 1)) * 34))
                 update_job_status(match_id, status="processing", progress=current_pct, stage="detection_and_tracking")
                 # Save partial analytics for instant live streaming
                 save_partial_analytics(
@@ -211,10 +222,40 @@ def process_video_pipeline(match_id: str, video_path: str):
                         },
                         "court_nodes": detected_court_nodes,
                         "frame_records": list(frame_records),
-                        "players": {
-                            "player_1": {"player_id": 1, "label": extracted_names.get("player_1_name", "VĐV 1 (Gần)")},
-                            "player_2": {"player_id": 2, "label": extracted_names.get("player_2_name", "VĐV 2 (Xa)")},
+                        "overview": {
+                            "total_rallies": 0,
+                            "total_shots": 0,
+                            "active_play_duration_sec": 0.0,
+                            "total_distance_player_1_m": 0.0,
+                            "total_distance_player_2_m": 0.0,
                         },
+                        "players": {
+                            "player_1": {
+                                "player_id": 1,
+                                "label": extracted_names.get("player_1_name", "VĐV 1 (Gần)"),
+                                "side": "Sân Gần",
+                                "distance_meters": 0.0,
+                                "avg_speed_mps": 0.0,
+                                "max_speed_mps": 0.0,
+                                "active_time_seconds": 0.0,
+                                "court_control_pct": 50.0,
+                                "zone_occupancy": {},
+                            },
+                            "player_2": {
+                                "player_id": 2,
+                                "label": extracted_names.get("player_2_name", "VĐV 2 (Xa)"),
+                                "side": "Sân Xa",
+                                "distance_meters": 0.0,
+                                "avg_speed_mps": 0.0,
+                                "max_speed_mps": 0.0,
+                                "active_time_seconds": 0.0,
+                                "court_control_pct": 50.0,
+                                "zone_occupancy": {},
+                            },
+                        },
+                        "rallies": [],
+                        "hits": [],
+                        "heatmaps": {},
                     },
                 )
 
@@ -288,3 +329,5 @@ def process_video_pipeline(match_id: str, video_path: str):
         err_msg = f"{str(e)}: {traceback.format_exc()}"
         print(f"[Worker Error] {err_msg}")
         update_job_status(match_id, status="failed", progress=0, stage="error", error=str(e))
+    finally:
+        clear_partial_analytics(match_id)

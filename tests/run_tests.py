@@ -16,9 +16,13 @@ from tests.unit.test_movement import (
     test_smooth_court_trajectory,
     test_compute_distance_meters,
     test_compute_speed_profile,
+    test_compute_speed_profile_uses_real_timestamps,
 )
 from tests.unit.test_homography import test_homography_square_to_square
-from tests.unit.test_rally import test_rally_segmenter_basic
+from tests.unit.test_rally import (
+    test_rally_segmenter_basic,
+    test_rally_segmenter_uses_timestamps_for_sampled_frames,
+)
 from tests.integration.test_full_pipeline import test_full_pipeline_analytics_contract
 from tests.integration.test_api import test_api_root_and_health, test_api_demo_match
 
@@ -29,8 +33,10 @@ def run_all_tests():
         ("test_smooth_court_trajectory", test_smooth_court_trajectory),
         ("test_compute_distance_meters", test_compute_distance_meters),
         ("test_compute_speed_profile", test_compute_speed_profile),
+        ("test_compute_speed_profile_uses_real_timestamps", test_compute_speed_profile_uses_real_timestamps),
         ("test_homography_square_to_square", test_homography_square_to_square),
         ("test_rally_segmenter_basic", test_rally_segmenter_basic),
+        ("test_rally_segmenter_uses_timestamps_for_sampled_frames", test_rally_segmenter_uses_timestamps_for_sampled_frames),
         ("test_full_pipeline_analytics_contract", test_full_pipeline_analytics_contract),
         ("test_api_root_and_health", test_api_root_and_health),
         ("test_api_demo_match", test_api_demo_match),

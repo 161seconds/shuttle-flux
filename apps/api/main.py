@@ -6,13 +6,14 @@ Provides endpoints for video upload, job polling, analytics retrieval, and video
 import os
 import sys
 import uuid
-import math
 import numpy as np
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
+from urllib.parse import urlparse
+from typing import Dict, Any
+from pydantic import BaseModel, Field
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 
 # Ensure root workspace is in sys.path
 WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -26,10 +27,11 @@ from apps.api.models import (
     MatchAnalyticsResponse,
 )
 from apps.api.storage import (
-    save_uploaded_video,
+    save_uploaded_video_file,
     register_youtube_match,
     get_match_info,
     get_job_status,
+    job_exists,
     cancel_job,
     is_job_cancelled,
     get_analytics_result,
@@ -47,14 +49,38 @@ app = FastAPI(
     version="1.0.0",
 )
 
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+    ).split(",")
+    if origin.strip()
+]
+MAX_UPLOAD_SIZE_BYTES = int(os.getenv("MAX_UPLOAD_SIZE_MB", "2048")) * 1024 * 1024
+
 # Enable CORS for Next.js web client
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def is_valid_youtube_url(url: str) -> bool:
+    """Accepts HTTP(S) URLs hosted by YouTube itself, not lookalike domains."""
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+
+    return parsed.scheme in {"http", "https"} and (
+        hostname == "youtu.be"
+        or hostname == "youtube.com"
+        or hostname.endswith(".youtube.com")
+    )
 
 
 def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_path: str):
@@ -117,6 +143,8 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
         except Exception as dl_err:
+            if is_job_cancelled(match_id):
+                return
             print(f"[YouTube First Attempt Failed: {dl_err}]. Retrying with fallback generic client...")
             fallback_opts = dict(ydl_opts)
             fallback_opts["extractor_args"] = {
@@ -146,6 +174,8 @@ def process_youtube_download_and_pipeline(match_id: str, url: str, target_video_
         # Continue with CV / ML analytics pipeline
         process_video_pipeline(match_id, actual_path)
     except Exception as e:
+        if is_job_cancelled(match_id):
+            return
         print(f"[YouTube Pipeline Error] {e}")
         update_job_status(
             match_id=match_id,
@@ -177,22 +207,32 @@ async def upload_match_video(
     file: UploadFile = File(...),
 ):
     """Uploads a badminton video file and triggers async pipeline worker."""
-    if not file.filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv")):
+    filename = file.filename or ""
+    if not filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv")):
         raise HTTPException(
             status_code=400,
             detail="Unsupported video format. Please upload MP4, MOV, AVI, or MKV.",
         )
 
+    upload_size = getattr(file, "size", None)
+    if upload_size is not None and upload_size > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Video exceeds the {MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)} MB upload limit.",
+        )
+
     match_id = str(uuid.uuid4())[:8]
-    content = await file.read()
-    video_path = save_uploaded_video(match_id, file.filename, content)
+    video_path = await run_in_threadpool(
+        save_uploaded_video_file, match_id, filename, file.file
+    )
+    update_job_status(match_id, status="queued", progress=0, stage="init")
 
     # Spawn async processing worker
     background_tasks.add_task(process_video_pipeline, match_id, video_path)
 
     return MatchUploadResponse(
         match_id=match_id,
-        filename=file.filename,
+        filename=filename,
         status="queued",
         created_at=get_match_info(match_id)["created_at"],
     )
@@ -205,7 +245,7 @@ async def ingest_youtube_match(
 ):
     """Ingests a badminton match from a YouTube URL and runs analysis."""
     url = payload.url.strip()
-    if not ("youtube.com" in url or "youtu.be" in url):
+    if not is_valid_youtube_url(url):
         raise HTTPException(
             status_code=400,
             detail="Invalid YouTube URL. Please provide a valid youtube.com or youtu.be link.",
@@ -238,22 +278,19 @@ async def ingest_youtube_match(
 @app.get("/api/v1/matches/{match_id}/processing", response_model=ProcessingStatusResponse)
 async def get_match_processing_status(match_id: str):
     """Polls processing progress and pipeline stage."""
+    if not job_exists(match_id):
+        raise HTTPException(status_code=404, detail="Match job not found")
     status_data = get_job_status(match_id)
-    if status_data.get("status") in ["cancelled", "failed"]:
-        return ProcessingStatusResponse(**status_data)
-    if match_id.startswith("demo"):
-        return ProcessingStatusResponse(
-            match_id=match_id,
-            status="completed",
-            progress_percentage=100,
-            current_stage="completed",
-        )
     return ProcessingStatusResponse(**status_data)
 
 
 @app.post("/api/v1/matches/{match_id}/cancel")
 async def cancel_match_processing(match_id: str):
     """Cancels active processing job for a match."""
+    if not job_exists(match_id):
+        raise HTTPException(status_code=404, detail="Match job not found")
+    if get_job_status(match_id).get("status") in {"completed", "failed", "cancelled"}:
+        raise HTTPException(status_code=409, detail="Match job is already finished")
     success = cancel_job(match_id)
     if not success:
         raise HTTPException(status_code=404, detail="Match job not found")
@@ -264,7 +301,7 @@ async def cancel_match_processing(match_id: str):
 @app.get("/api/v1/matches/{match_id}/analytics")
 async def get_match_analytics(match_id: str):
     """Retrieves full computed match analytics, or live partial streaming analytics if in-progress."""
-    if match_id.startswith("demo"):
+    if match_id == "demo":
         return generate_demo_analytics(match_id)
 
     analytics = get_analytics_result(match_id)
@@ -499,7 +536,7 @@ async def create_demo_match():
 
 
 @app.post("/api/v1/storage/cleanup")
-async def cleanup_video_storage(keep_latest_n: int = 1):
+async def cleanup_video_storage(keep_latest_n: int = Query(default=1, ge=0)):
     """Deletes cached video files in storage/matches to free up disk space."""
     res = cleanup_storage(keep_latest_n=keep_latest_n)
     return {
@@ -510,8 +547,8 @@ async def cleanup_video_storage(keep_latest_n: int = 1):
 
 
 class UpdatePlayerNamesRequest(BaseModel):
-    player_1_name: str
-    player_2_name: str
+    player_1_name: str = Field(min_length=1, max_length=80)
+    player_2_name: str = Field(min_length=1, max_length=80)
 
 
 @app.put("/api/v1/matches/{match_id}/players")

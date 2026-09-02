@@ -4,6 +4,7 @@ Integration test for FastAPI Backend REST API endpoints.
 
 from starlette.testclient import TestClient
 from apps.api.main import app
+from apps.api.storage import update_job_status
 
 client = TestClient(app)
 
@@ -46,10 +47,21 @@ def test_api_demo_match():
     assert len(rallies_res.json()) == 3
 
 
-def test_api_youtube_endpoint_validation():
+def test_api_youtube_endpoint_validation(monkeypatch):
+    monkeypatch.setattr(
+        "apps.api.main.process_youtube_download_and_pipeline",
+        lambda *_args, **_kwargs: None,
+    )
+
     # Test invalid URL
     invalid_res = client.post("/api/v1/matches/youtube", json={"url": "https://invalid-domain.com/video"})
     assert invalid_res.status_code == 400
+
+    lookalike_res = client.post(
+        "/api/v1/matches/youtube",
+        json={"url": "https://youtube.com.attacker.example/watch?v=sample123"},
+    )
+    assert lookalike_res.status_code == 400
 
     # Test valid format URL acceptance
     valid_res = client.post("/api/v1/matches/youtube", json={"url": "https://www.youtube.com/watch?v=sample123"})
@@ -60,9 +72,8 @@ def test_api_youtube_endpoint_validation():
 
 
 def test_api_cancel_endpoint():
-    # Trigger demo match first
-    res = client.post("/api/v1/matches/demo")
-    match_id = res.json()["match_id"]
+    match_id = "cancel-test-job"
+    update_job_status(match_id, status="processing", progress=25, stage="preprocessing")
 
     # Cancel match
     cancel_res = client.post(f"/api/v1/matches/{match_id}/cancel")
@@ -74,4 +85,37 @@ def test_api_cancel_endpoint():
     assert status_res.status_code == 200
     assert status_res.json()["status"] == "cancelled"
 
+    update_job_status(match_id, status="processing", progress=50, stage="detection_and_tracking")
+    status_res = client.get(f"/api/v1/matches/{match_id}/processing")
+    assert status_res.json()["status"] == "cancelled"
 
+
+def test_api_unknown_job_returns_not_found():
+    status_res = client.get("/api/v1/matches/does-not-exist/processing")
+    assert status_res.status_code == 404
+
+
+def test_api_cannot_cancel_completed_job():
+    res = client.post("/api/v1/matches/demo")
+    match_id = res.json()["match_id"]
+
+    cancel_res = client.post(f"/api/v1/matches/{match_id}/cancel")
+
+    assert cancel_res.status_code == 409
+
+
+def test_update_player_names_updates_frame_labels():
+    res = client.post("/api/v1/matches/demo")
+    match_id = res.json()["match_id"]
+
+    update_res = client.put(
+        f"/api/v1/matches/{match_id}/players",
+        json={"player_1_name": "Near Player", "player_2_name": "Far Player"},
+    )
+
+    assert update_res.status_code == 200
+    analytics = update_res.json()["analytics"]
+    assert analytics["players"]["player_1"]["label"] == "Near Player"
+    assert analytics["players"]["player_2"]["label"] == "Far Player"
+    assert analytics["frame_records"][0]["players"][0]["label"] == "Near Player"
+    assert analytics["frame_records"][0]["players"][1]["label"] == "Far Player"

@@ -5,7 +5,9 @@ Handles saving video files, caching JSON match analytics, and tracking job state
 
 import os
 import json
-from typing import Dict, Any, Optional
+import shutil
+import threading
+from typing import BinaryIO, Dict, Any, Optional
 from datetime import datetime, timezone
 
 
@@ -20,16 +22,36 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 _JOB_REGISTRY: Dict[str, Dict[str, Any]] = {}
 _MATCH_REGISTRY: Dict[str, Dict[str, Any]] = {}
 _PARTIAL_ANALYTICS: Dict[str, Dict[str, Any]] = {}
+_REGISTRY_LOCK = threading.RLock()
 
 
 def save_partial_analytics(match_id: str, data: Dict[str, Any]):
     """Caches live partial frame records and metadata for real-time streaming."""
-    _PARTIAL_ANALYTICS[match_id] = data
+    with _REGISTRY_LOCK:
+        _PARTIAL_ANALYTICS[match_id] = data
 
 
 def get_partial_analytics(match_id: str) -> Optional[Dict[str, Any]]:
     """Returns live partial analytics while worker is processing."""
-    return _PARTIAL_ANALYTICS.get(match_id)
+    with _REGISTRY_LOCK:
+        return _PARTIAL_ANALYTICS.get(match_id)
+
+
+def clear_partial_analytics(match_id: str) -> None:
+    """Releases live frame data after a job reaches a terminal state."""
+    with _REGISTRY_LOCK:
+        _PARTIAL_ANALYTICS.pop(match_id, None)
+
+
+def _register_uploaded_match(match_id: str, filename: str, target_path: str) -> None:
+    with _REGISTRY_LOCK:
+        _MATCH_REGISTRY[match_id] = {
+            "match_id": match_id,
+            "filename": filename,
+            "video_path": target_path,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "status": "queued",
+        }
 
 
 def save_uploaded_video(match_id: str, filename: str, content: bytes) -> str:
@@ -40,31 +62,38 @@ def save_uploaded_video(match_id: str, filename: str, content: bytes) -> str:
     with open(target_path, "wb") as f:
         f.write(content)
 
-    _MATCH_REGISTRY[match_id] = {
-        "match_id": match_id,
-        "filename": filename,
-        "video_path": target_path,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "status": "queued",
-    }
+    _register_uploaded_match(match_id, filename, target_path)
+    return target_path
+
+
+def save_uploaded_video_file(match_id: str, filename: str, source: BinaryIO) -> str:
+    """Copies a spooled upload to storage without loading the full video into RAM."""
+    ext = os.path.splitext(filename)[1].lower()
+    target_path = os.path.join(MATCHES_DIR, f"{match_id}{ext}")
+    source.seek(0)
+    with open(target_path, "wb") as target:
+        shutil.copyfileobj(source, target, length=1024 * 1024)
+
+    _register_uploaded_match(match_id, filename, target_path)
     return target_path
 
 
 def register_youtube_match(match_id: str, url: str) -> str:
     """Registers a YouTube match and returns target destination path."""
     target_path = os.path.join(MATCHES_DIR, f"{match_id}.mp4")
-    _MATCH_REGISTRY[match_id] = {
-        "match_id": match_id,
-        "filename": f"YouTube: {url}",
-        "video_path": target_path,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "status": "queued",
-    }
+    _register_uploaded_match(match_id, f"YouTube: {url}", target_path)
     return target_path
 
 
 def get_match_info(match_id: str) -> Optional[Dict[str, Any]]:
-    return _MATCH_REGISTRY.get(match_id)
+    with _REGISTRY_LOCK:
+        match = _MATCH_REGISTRY.get(match_id)
+        return dict(match) if match else None
+
+
+def job_exists(match_id: str) -> bool:
+    with _REGISTRY_LOCK:
+        return match_id in _JOB_REGISTRY
 
 
 def update_job_status(
@@ -75,54 +104,64 @@ def update_job_status(
     error: Optional[str] = None,
 ):
     """Updates job progress in registry."""
-    if match_id not in _JOB_REGISTRY:
-        _JOB_REGISTRY[match_id] = {
-            "match_id": match_id,
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        }
+    with _REGISTRY_LOCK:
+        if match_id not in _JOB_REGISTRY:
+            _JOB_REGISTRY[match_id] = {
+                "match_id": match_id,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }
+        elif _JOB_REGISTRY[match_id].get("status") in {
+            "completed",
+            "failed",
+            "cancelled",
+        } and status != _JOB_REGISTRY[match_id].get("status"):
+            return
 
-    _JOB_REGISTRY[match_id].update(
-        {
-            "status": status,
-            "progress_percentage": progress,
-            "current_stage": stage,
-            "error_message": error,
-        }
-    )
-    if status == "completed":
-        _JOB_REGISTRY[match_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+        _JOB_REGISTRY[match_id].update(
+            {
+                "status": status,
+                "progress_percentage": progress,
+                "current_stage": stage,
+                "error_message": error,
+            }
+        )
+        if status == "completed":
+            _JOB_REGISTRY[match_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
         if match_id in _MATCH_REGISTRY:
-            _MATCH_REGISTRY[match_id]["status"] = "completed"
+            _MATCH_REGISTRY[match_id]["status"] = status
 
 
 def get_job_status(match_id: str) -> Dict[str, Any]:
-    return _JOB_REGISTRY.get(
-        match_id,
-        {
+    with _REGISTRY_LOCK:
+        status = _JOB_REGISTRY.get(match_id)
+        if status:
+            return dict(status)
+        return {
             "match_id": match_id,
             "status": "queued",
             "progress_percentage": 0,
             "current_stage": "init",
-        },
-    )
+        }
 
 
 def cancel_job(match_id: str) -> bool:
     """Marks an active job as cancelled."""
-    if match_id in _JOB_REGISTRY:
-        _JOB_REGISTRY[match_id]["status"] = "cancelled"
-        _JOB_REGISTRY[match_id]["cancelled"] = True
-        _JOB_REGISTRY[match_id]["error_message"] = "Processing cancelled by user"
-        if match_id in _MATCH_REGISTRY:
-            _MATCH_REGISTRY[match_id]["status"] = "cancelled"
-        return True
-    return False
+    with _REGISTRY_LOCK:
+        if match_id in _JOB_REGISTRY:
+            _JOB_REGISTRY[match_id]["status"] = "cancelled"
+            _JOB_REGISTRY[match_id]["cancelled"] = True
+            _JOB_REGISTRY[match_id]["error_message"] = "Processing cancelled by user"
+            if match_id in _MATCH_REGISTRY:
+                _MATCH_REGISTRY[match_id]["status"] = "cancelled"
+            return True
+        return False
 
 
 def is_job_cancelled(match_id: str) -> bool:
     """Checks whether a job has been cancelled."""
-    job = _JOB_REGISTRY.get(match_id)
-    return bool(job and (job.get("status") == "cancelled" or job.get("cancelled", False)))
+    with _REGISTRY_LOCK:
+        job = _JOB_REGISTRY.get(match_id)
+        return bool(job and (job.get("status") == "cancelled" or job.get("cancelled", False)))
 
 
 def save_analytics_result(match_id: str, result_data: Dict[str, Any]):
@@ -150,13 +189,24 @@ def update_player_names(match_id: str, p1_name: str, p2_name: str) -> Optional[D
                 analytics["players"]["player_1"]["label"] = p1_name
             if "player_2" in analytics["players"]:
                 analytics["players"]["player_2"]["label"] = p2_name
+        for frame in analytics.get("frame_records", []):
+            for player in frame.get("players", []):
+                if player.get("player_id") == 1:
+                    player["label"] = p1_name
+                elif player.get("player_id") == 2:
+                    player["label"] = p2_name
+        scoreboard = analytics.get("scoreboard")
+        if isinstance(scoreboard, dict):
+            scoreboard["player_1_name"] = p1_name
+            scoreboard["player_2_name"] = p2_name
         save_analytics_result(match_id, analytics)
         return analytics
     return None
 
 
 def list_all_matches() -> list:
-    return list(_MATCH_REGISTRY.values())
+    with _REGISTRY_LOCK:
+        return [dict(match) for match in _MATCH_REGISTRY.values()]
 
 
 def cleanup_storage(keep_latest_n: int = 1) -> Dict[str, Any]:

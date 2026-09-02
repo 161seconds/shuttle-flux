@@ -37,3 +37,20 @@ def test_rally_segmenter_basic():
     assert len(rallies) == 1
     assert rallies[0]["duration_seconds"] >= 2.5
     assert rallies[0]["estimated_shot_count"] >= 2
+
+
+def test_rally_segmenter_uses_timestamps_for_sampled_frames():
+    segmenter = RallySegmenter(fps=60.0, min_rally_duration_sec=2.0)
+    frames_data = [
+        {
+            "frame_idx": i * 15,
+            "timestamp": i * 0.25,
+            "shuttle": {"visible": True},
+        }
+        for i in range(17)
+    ]
+
+    rallies = segmenter.segment(frames_data)
+
+    assert len(rallies) == 1
+    assert rallies[0]["duration_seconds"] == 4.0

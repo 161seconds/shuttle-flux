@@ -32,12 +32,21 @@ def run_full_analytics(
         return {"error": "No frame records provided"}
 
     total_frames = len(frame_records)
-    duration_sec = total_frames / fps if fps > 0 else 0.0
+    first_timestamp = float(frame_records[0].get("timestamp", 0.0))
+    last_timestamp = float(frame_records[-1].get("timestamp", first_timestamp))
+    duration_sec = max(0.0, last_timestamp - first_timestamp)
+
+    video_metadata = match_metadata.get("video_metadata", {})
+    if isinstance(video_metadata, dict):
+        source_duration = float(video_metadata.get("duration_seconds", 0.0) or 0.0)
+        if source_duration > 0:
+            duration_sec = source_duration
 
     target_player_ids = [1, 2, 3, 4] if is_doubles else [1, 2]
 
     # 1. Separate player trajectories by player_id
     player_trajectories: Dict[int, List[Tuple[float, float]]] = {pid: [] for pid in target_player_ids}
+    player_timestamps: Dict[int, List[float]] = {pid: [] for pid in target_player_ids}
     player_positions_by_id: Dict[int, List[Dict[str, Any]]] = {pid: [] for pid in target_player_ids}
     shuttle_positions: List[Dict[str, Any]] = []
 
@@ -52,6 +61,7 @@ def run_full_analytics(
             y_norm = p.get("y_norm", 0.5)
             if p_id in player_trajectories:
                 player_trajectories[p_id].append((float(x_norm), float(y_norm)))
+                player_timestamps[p_id].append(float(t))
                 player_positions_by_id[p_id].append(
                     {"x_norm": x_norm, "y_norm": y_norm, "timestamp": t, "frame_idx": frame_idx}
                 )
@@ -96,7 +106,12 @@ def run_full_analytics(
 
         if raw_traj:
             smoothed_traj = smooth_court_trajectory(raw_traj, window_size=5)
-            speed_profile = compute_speed_profile(smoothed_traj, fps=fps, is_doubles=is_doubles)
+            speed_profile = compute_speed_profile(
+                smoothed_traj,
+                fps=fps,
+                is_doubles=is_doubles,
+                timestamps=np.asarray(player_timestamps[p_id], dtype=np.float64),
+            )
             occupancy = compute_zone_occupancy(smoothed_traj)
             heatmap = generate_court_heatmap(raw_traj, grid_size=(30, 60))
 

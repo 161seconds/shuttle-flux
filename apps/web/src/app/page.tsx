@@ -17,7 +17,13 @@ import {
   getProcessingStatus,
   getMatchAnalytics,
   createDemoMatch,
+  createEmptyMatchAnalytics,
+  mergeMatchAnalytics,
 } from "../lib/api";
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error";
+}
 
 export default function Home() {
   const [analytics, setAnalytics] = useState<MatchAnalytics | null>(null);
@@ -31,10 +37,12 @@ export default function Home() {
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
+    let pollInFlight = false;
 
     if (activeMatchId && (!processingStatus || processingStatus.status === "processing")) {
       timer = setInterval(async () => {
-        if (cancelled) return;
+        if (cancelled || pollInFlight) return;
+        pollInFlight = true;
         try {
           const status = await getProcessingStatus(activeMatchId);
           if (cancelled) return;
@@ -46,14 +54,7 @@ export default function Home() {
               const liveData = await getMatchAnalytics(activeMatchId);
               if (cancelled) return;
               if (liveData && liveData.frame_records && liveData.frame_records.length > 0) {
-                setAnalytics((prev) => {
-                  if (!prev) return liveData;
-                  return {
-                    ...prev,
-                    ...liveData,
-                    frame_records: liveData.frame_records,
-                  };
-                });
+                setAnalytics((prev) => mergeMatchAnalytics(prev, liveData, activeMatchId));
               }
             } catch (_) {
               // Still preparing first batch — ignore 404
@@ -66,7 +67,7 @@ export default function Home() {
             if (timer) clearInterval(timer);
             try {
               const data = await getMatchAnalytics(activeMatchId);
-              setAnalytics(data);
+              setAnalytics((prev) => mergeMatchAnalytics(prev, data, activeMatchId));
             } catch (_) {}
           } else if (status.status === "failed" || status.status === "cancelled") {
             cancelled = true;
@@ -79,6 +80,8 @@ export default function Home() {
           }
         } catch (e) {
           console.error("Polling error:", e);
+        } finally {
+          pollInFlight = false;
         }
       }, 2000); // Poll every 2s instead of 1s to reduce server load
     }
@@ -100,64 +103,9 @@ export default function Home() {
         current_stage: "preprocessing",
       });
 
-      // Immediately enter Live AI Stream mode so the user can watch the video right away
-      setAnalytics({
-        metadata: {
-          match_id: res.match_id,
-          fps: 30,
-          total_frames: 300,
-          duration_seconds: 30,
-          mode: "Đơn (Singles 1v1)",
-        },
-        overview: {
-          total_rallies: 0,
-          total_shots: 0,
-          active_play_duration_sec: 0,
-          total_distance_player_1_m: 0,
-          total_distance_player_2_m: 0,
-        },
-        players: {
-          player_1: {
-            player_id: 1,
-            label: "VĐV 1 (Gần)",
-            side: "Sân Gần (Nửa Dưới)",
-            distance_meters: 0,
-            avg_speed_mps: 0,
-            max_speed_mps: 0,
-            active_time_seconds: 0,
-            court_control_pct: 50,
-            zone_occupancy: {},
-          },
-          player_2: {
-            player_id: 2,
-            label: "VĐV 2 (Xa)",
-            side: "Sân Xa (Bên Kia Lưới)",
-            distance_meters: 0,
-            avg_speed_mps: 0,
-            max_speed_mps: 0,
-            active_time_seconds: 0,
-            court_control_pct: 50,
-            zone_occupancy: {},
-          },
-        },
-        rallies: [],
-        hits: [],
-        court_nodes: {
-          top_left: [0.285, 0.442],
-          top_right: [0.715, 0.442],
-          net_left: [0.225, 0.532],
-          net_right: [0.775, 0.532],
-          far_service_left: [0.270, 0.490],
-          far_service_right: [0.730, 0.490],
-          near_service_left: [0.210, 0.588],
-          near_service_right: [0.790, 0.588],
-          bottom_left: [0.165, 0.895],
-          bottom_right: [0.835, 0.895],
-        },
-        frame_records: [],
-      });
-    } catch (err: any) {
-      alert(`Lỗi tải tệp: ${err.message}`);
+      setAnalytics(createEmptyMatchAnalytics(res.match_id));
+    } catch (err: unknown) {
+      alert(`Lỗi tải tệp: ${getErrorMessage(err)}`);
     } finally {
       setIsUploading(false);
     }
@@ -174,8 +122,8 @@ export default function Home() {
         progress_percentage: 5,
         current_stage: "downloading_youtube",
       });
-    } catch (err: any) {
-      alert(`Lỗi xử lý link YouTube: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Lỗi xử lý link YouTube: ${getErrorMessage(err)}`);
     } finally {
       setIsUploading(false);
     }
@@ -199,7 +147,7 @@ export default function Home() {
       setIsLoadingDemo(true);
       const res = await createDemoMatch();
       setActiveMatchId(res.match_id);
-      setAnalytics(res.analytics);
+      setAnalytics(mergeMatchAnalytics(null, res.analytics, res.match_id));
       setProcessingStatus(null);
     } catch (err: any) {
       // If backend API server is offline, fallback to built-in client demo mock
@@ -216,6 +164,7 @@ export default function Home() {
     setActiveMatchId(null);
     setAnalytics(null);
     setProcessingStatus(null);
+    setSelectedRallyTime(null);
   };
 
   return (

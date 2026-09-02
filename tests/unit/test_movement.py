@@ -51,3 +51,14 @@ def test_compute_speed_profile():
     profile = compute_speed_profile(pts, fps=30.0)
     assert profile["total_distance_m"] > 6.0
     assert profile["avg_speed_mps"] > 5.0
+
+
+def test_compute_speed_profile_uses_real_timestamps():
+    pts = np.array([[0.0, 0.0], [0.0, 0.5 / 13.4], [0.0, 1.0 / 13.4]])
+    timestamps = np.array([0.0, 0.5, 1.0])
+
+    profile = compute_speed_profile(pts, fps=60.0, timestamps=timestamps)
+
+    assert np.isclose(profile["total_distance_m"], 1.0)
+    assert np.isclose(profile["avg_speed_mps"], 1.0)
+    assert np.isclose(profile["active_seconds"], 1.0)

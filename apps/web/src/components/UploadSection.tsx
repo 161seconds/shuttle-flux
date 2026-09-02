@@ -23,6 +23,21 @@ interface UploadSectionProps {
   isUploading: boolean;
 }
 
+function isYouTubeUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      (hostname === "youtu.be" ||
+        hostname === "youtube.com" ||
+        hostname.endsWith(".youtube.com"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const UploadSection: React.FC<UploadSectionProps> = ({
   onFileUpload,
   onYouTubeSubmit,
@@ -68,7 +83,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
       setUrlError("Vui lòng nhập link video YouTube.");
       return;
     }
-    if (!url.includes("youtube.com") && !url.includes("youtu.be")) {
+    if (!isYouTubeUrl(url)) {
       setUrlError("Link không hợp lệ. Vui lòng nhập link từ youtube.com hoặc youtu.be");
       return;
     }
@@ -185,7 +200,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({
                         <LinkIcon className="w-4 h-4" />
                       </div>
                       <input
-                        type="text"
+                        type="url"
                         value={youtubeUrl}
                         onChange={(e) => {
                           setYoutubeUrl(e.target.value);
