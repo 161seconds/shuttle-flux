@@ -18,22 +18,84 @@ Changes:
 """
 
 from typing import List, Dict, Any, Optional
+import os
 import numpy as np
+
+from ml.runtime.capabilities import resolve_yolo_runtime
 
 
 class PlayerDetector:
     def __init__(self, model_path: Optional[str] = None, conf_threshold: float = 0.30):
         self.conf_threshold = conf_threshold
         self.model = None
+        self.runtime_backend = "unavailable"
+        self.device = "cpu"
+        self.fallback_model_path = model_path or os.getenv("YOLO_MODEL_PATH", "yolov8n.pt")
 
-        target_model = model_path or "yolov8n.pt"
+        target_model, backend, device = resolve_yolo_runtime(model_path or "yolov8n.pt")
+        self.model_path = target_model
         try:
             from ultralytics import YOLO
 
             self.model = YOLO(target_model)
-            print(f"[PlayerDetector] Successfully loaded YOLO model: {target_model}")
+            self.runtime_backend = backend
+            self.device = device
+            print(
+                f"[PlayerDetector] Loaded YOLO model: {target_model} "
+                f"(backend={backend}, device={device})"
+            )
         except Exception as e:
             print(f"[PlayerDetector] Failed to load YOLO model from {target_model}: {e}")
+
+    def _predict(self, frame: np.ndarray):
+        options = {
+            "imgsz": 640,
+            "classes": [0],
+            "conf": self.conf_threshold,
+            "device": self.device,
+            "verbose": False,
+        }
+        if self.runtime_backend == "pytorch" and self.device != "cpu":
+            options["half"] = True
+        return self.model(frame, **options)[0]
+
+    def _predict_with_fallback(self, frame: np.ndarray):
+        try:
+            return self._predict(frame)
+        except Exception as exc:
+            print(f"[PlayerDetector] {self.runtime_backend} inference failed: {exc}")
+
+        try:
+            from ultralytics import YOLO
+
+            if self.runtime_backend != "pytorch":
+                self.model = YOLO(self.fallback_model_path)
+                self.runtime_backend = "pytorch"
+                print(f"[PlayerDetector] Falling back to PyTorch: {self.fallback_model_path}")
+            elif self.device == "cpu":
+                self.model = None
+                self.runtime_backend = "unavailable"
+                return None
+
+            if self.device != "cpu":
+                try:
+                    return self._predict(frame)
+                except Exception as exc:
+                    print(f"[PlayerDetector] CUDA inference failed, falling back to CPU: {exc}")
+                    self.device = "cpu"
+            return self._predict(frame)
+        except Exception as exc:
+            print(f"[PlayerDetector] All inference backends failed: {exc}")
+            self.model = None
+            self.runtime_backend = "unavailable"
+            return None
+
+    def get_runtime_info(self) -> Dict[str, Any]:
+        return {
+            "backend": self.runtime_backend,
+            "device": self.device,
+            "model_path": self.model_path,
+        }
 
     def is_official_referee(
         self,
@@ -110,15 +172,9 @@ class PlayerDetector:
         h, w, _ = frame.shape
         if self.model is not None:
             # Higher resolution inference (640px) for better detection accuracy
-            results = self.model(
-                frame,
-                imgsz=640,
-                classes=[0],
-                conf=self.conf_threshold,
-                verbose=False,
-            )[0]
+            results = self._predict_with_fallback(frame)
             raw_detections = []
-            for box in results.boxes:
+            for box in results.boxes if results is not None else []:
                 xyxy = box.xyxy[0].cpu().numpy().tolist()
                 conf = float(box.conf[0].cpu().numpy())
                 x1, y1, x2, y2 = xyxy
@@ -222,22 +278,23 @@ class PlayerDetector:
                 if chosen:
                     return chosen
 
-        # Fallback heuristic
-        return [
-            {
-                "bbox": [w * 0.42, h * 0.65, w * 0.58, h * 0.92],
-                "confidence": 0.95,
-                "bottom_center": [w * 0.50, h * 0.92],
-                "role": "near",
-                "rank": 1,
-                "class": "player",
-            },
-            {
-                "bbox": [w * 0.44, h * 0.42, w * 0.54, h * 0.56],
-                "confidence": 0.92,
-                "bottom_center": [w * 0.49, h * 0.56],
-                "role": "far",
-                "rank": 1,
-                "class": "player",
-            },
-        ]
+        if os.getenv("ENABLE_SYNTHETIC_DETECTIONS", "0") == "1":
+            return [
+                {
+                    "bbox": [w * 0.42, h * 0.65, w * 0.58, h * 0.92],
+                    "confidence": 0.95,
+                    "bottom_center": [w * 0.50, h * 0.92],
+                    "role": "near",
+                    "rank": 1,
+                    "class": "player",
+                },
+                {
+                    "bbox": [w * 0.44, h * 0.42, w * 0.54, h * 0.56],
+                    "confidence": 0.92,
+                    "bottom_center": [w * 0.49, h * 0.56],
+                    "role": "far",
+                    "rank": 1,
+                    "class": "player",
+                },
+            ]
+        return []

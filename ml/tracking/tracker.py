@@ -9,6 +9,8 @@ Strictly adapts to the actual number of players on court:
 from typing import List, Dict, Any, Optional
 import numpy as np
 
+from ml.tracking.deep_eiou import match_tracks
+
 
 class PlayerTracker:
     def __init__(self, smoothing_alpha: float = 0.40):
@@ -106,7 +108,7 @@ class PlayerTracker:
                 held = dict(self.tracks[primary_id])
                 held["frame_idx"] = frame_idx
                 held["confidence"] = max(0.35, held["confidence"] * 0.94)
-                results.append(held)
+                results.append(self._public_track(held))
             return results
 
         if len(candidates) == 1 or not self.is_doubles_mode:
@@ -114,7 +116,7 @@ class PlayerTracker:
             cand = candidates[0]
             self.missing_counts[primary_id] = 0
             self.tracks[primary_id] = self._build_smoothed_track(primary_id, cand, side_label, frame_idx)
-            results.append(dict(self.tracks[primary_id]))
+            results.append(self._public_track(self.tracks[primary_id]))
             # Reset secondary missing count so it doesn't linger as a ghost
             self.missing_counts[secondary_id] = 999
             return results
@@ -124,18 +126,12 @@ class PlayerTracker:
 
         # Spatial matching with previous positions
         if primary_id in self.tracks and secondary_id in self.tracks:
-            p1_bc = self.tracks[primary_id]["bottom_center"]
-            p2_bc = self.tracks[secondary_id]["bottom_center"]
-
-            d00 = np.hypot(c0["bottom_center"][0] - p1_bc[0], c0["bottom_center"][1] - p1_bc[1])
-            d11 = np.hypot(c1["bottom_center"][0] - p2_bc[0], c1["bottom_center"][1] - p2_bc[1])
-            d01 = np.hypot(c0["bottom_center"][0] - p2_bc[0], c0["bottom_center"][1] - p2_bc[1])
-            d10 = np.hypot(c1["bottom_center"][0] - p1_bc[0], c1["bottom_center"][1] - p1_bc[1])
-
-            if (d00 + d11) <= (d01 + d10):
-                cand_primary, cand_secondary = c0, c1
-            else:
-                cand_primary, cand_secondary = c1, c0
+            assignment = match_tracks(
+                [self.tracks[primary_id], self.tracks[secondary_id]],
+                [c0, c1],
+            )
+            cand_primary = [c0, c1][assignment[0]]
+            cand_secondary = [c0, c1][assignment[1]]
         else:
             # Sort left to right
             if c0["bottom_center"][0] <= c1["bottom_center"][0]:
@@ -149,14 +145,17 @@ class PlayerTracker:
         self.tracks[primary_id] = self._build_smoothed_track(primary_id, cand_primary, side_label, frame_idx)
         self.tracks[secondary_id] = self._build_smoothed_track(secondary_id, cand_secondary, side_label, frame_idx)
 
-        results.append(dict(self.tracks[primary_id]))
-        results.append(dict(self.tracks[secondary_id]))
+        results.append(self._public_track(self.tracks[primary_id]))
+        results.append(self._public_track(self.tracks[secondary_id]))
 
         return results
 
     def _build_smoothed_track(
         self, p_id: int, cand: Dict[str, Any], side_label: str, frame_idx: int
     ) -> Dict[str, Any]:
+        embedding = self._blend_embedding(
+            self.tracks.get(p_id, {}).get("embedding"), cand.get("embedding")
+        )
         if p_id in self.tracks:
             prev_bbox = self.tracks[p_id]["bbox"]
             curr_bbox = cand["bbox"]
@@ -177,6 +176,7 @@ class PlayerTracker:
                 "bottom_center": smoothed_bc,
                 "confidence": cand["confidence"],
                 "frame_idx": frame_idx,
+                "embedding": embedding,
             }
         else:
             return {
@@ -186,4 +186,25 @@ class PlayerTracker:
                 "bottom_center": cand["bottom_center"],
                 "confidence": cand["confidence"],
                 "frame_idx": frame_idx,
+                "embedding": embedding,
             }
+
+    @staticmethod
+    def _blend_embedding(previous: Any, current: Any) -> Optional[np.ndarray]:
+        if current is None:
+            return previous
+        current_array = np.asarray(current, dtype=np.float32).reshape(-1)
+        if previous is None:
+            norm = np.linalg.norm(current_array)
+            return current_array / max(float(norm), 1e-12)
+        previous_array = np.asarray(previous, dtype=np.float32).reshape(-1)
+        if previous_array.shape != current_array.shape:
+            return current_array / max(float(np.linalg.norm(current_array)), 1e-12)
+        blended = 0.85 * previous_array + 0.15 * current_array
+        return blended / max(float(np.linalg.norm(blended)), 1e-12)
+
+    @staticmethod
+    def _public_track(track: Dict[str, Any]) -> Dict[str, Any]:
+        public = dict(track)
+        public.pop("embedding", None)
+        return public

@@ -19,6 +19,18 @@ def test_api_root_and_health():
     assert health.json()["status"] == "healthy"
 
 
+def test_runtime_capabilities_contract():
+    response = client.get("/api/v1/runtime")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected_backend"] in {"pytorch", "onnx", "tensorrt"}
+    assert payload["inference_mode"] in {"local", "remote"}
+    assert "ultralytics_yolo" in payload["components"]
+    assert "deep_eiou" in payload["components"]
+    assert "inference_service" in payload
+
+
 def test_api_demo_match():
     res = client.post("/api/v1/matches/demo")
     assert res.status_code == 200

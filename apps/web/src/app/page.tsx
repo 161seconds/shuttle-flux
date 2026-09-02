@@ -8,6 +8,7 @@ import { VideoPlayerWithRadar } from "../components/VideoPlayerWithRadar";
 import { PlayerStats } from "../components/PlayerStats";
 import { HeatmapViewer } from "../components/HeatmapViewer";
 import { RallyTimeline } from "../components/RallyTimeline";
+import { RuntimeStack } from "../components/RuntimeStack";
 import {
   MatchAnalytics,
   ProcessingStatus,
@@ -177,6 +178,7 @@ export default function Home() {
       />
 
       <main className="container mx-auto px-4 py-6 flex-1">
+        <RuntimeStack />
         {!analytics ? (
           <UploadSection
             onFileUpload={handleFileUpload}

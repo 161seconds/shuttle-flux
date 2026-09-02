@@ -7,6 +7,9 @@ import os
 import sys
 import uuid
 import numpy as np
+import json
+from urllib.error import URLError
+from urllib.request import urlopen
 from urllib.parse import urlparse
 from typing import Dict, Any
 from pydantic import BaseModel, Field
@@ -42,6 +45,7 @@ from apps.api.storage import (
     cleanup_storage,
 )
 from apps.worker.worker import process_video_pipeline
+from ml.runtime.capabilities import get_runtime_capabilities
 
 app = FastAPI(
     title="Shuttle Flux API",
@@ -199,6 +203,27 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/api/v1/runtime")
+async def runtime_capabilities():
+    """Reports local capabilities and the optional Flask inference service state."""
+    result = get_runtime_capabilities()
+    service_url = os.getenv("INFERENCE_SERVICE_URL", "").rstrip("/")
+    result["inference_service"] = {
+        "configured": bool(service_url),
+        "reachable": False,
+        "url": service_url or None,
+    }
+    if service_url:
+        try:
+            with urlopen(f"{service_url}/v1/capabilities", timeout=2.0) as response:
+                remote = json.loads(response.read().decode("utf-8"))
+            result["inference_service"].update({"reachable": True, "runtime": remote})
+            result["components"]["flask"]["active"] = True
+        except (OSError, URLError, ValueError, json.JSONDecodeError) as exc:
+            result["inference_service"]["error"] = str(exc)
+    return result
 
 
 @app.post("/api/v1/matches/upload", response_model=MatchUploadResponse)

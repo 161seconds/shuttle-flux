@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   api:
     build:
@@ -10,9 +8,25 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@postgres:5432/badminton_ai
+      - INFERENCE_SERVICE_URL=http://inference:5001
     depends_on:
       - redis
       - postgres
+      - inference
+
+  inference:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.inference
+    ports:
+      - "5001:5001"
+    environment:
+      - VISION_BACKEND=auto
+      - YOLO_MODEL_PATH=/app/yolov8n.pt
+      - ENABLE_SAM3=0
+      - ENABLE_OSNET=0
+    volumes:
+      - ../../models:/app/models
 
   worker:
     build:
@@ -21,9 +35,14 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@postgres:5432/badminton_ai
+      - INFERENCE_SERVICE_URL=http://inference:5001
+      - ENABLE_FFMPEG_NORMALIZATION=1
     depends_on:
       - redis
       - postgres
+      - inference
+    volumes:
+      - ../../models:/app/models
 
   redis:
     image: redis:7-alpine

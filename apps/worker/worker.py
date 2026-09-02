@@ -14,7 +14,12 @@ WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath
 if WORKSPACE_ROOT not in sys.path:
     sys.path.insert(0, WORKSPACE_ROOT)
 
-from pipelines.preprocess import extract_video_metadata, frame_generator
+from pipelines.preprocess import (
+    cleanup_analysis_video,
+    extract_video_metadata,
+    frame_generator,
+    prepare_analysis_video,
+)
 from pipelines.calibrate import CourtCalibrator
 from pipelines.detect import DetectionPipeline
 from pipelines.track import TrackingPipeline
@@ -41,6 +46,7 @@ def process_video_pipeline(match_id: str, video_path: str):
     5. Analytics Engine (Movement, Heatmaps, Rallies, Shots)
     6. Persistence & Completion
     """
+    analysis_video_path = video_path
     try:
         if is_job_cancelled(match_id):
             return
@@ -48,7 +54,8 @@ def process_video_pipeline(match_id: str, video_path: str):
         update_job_status(match_id, status="processing", progress=22, stage="preprocessing")
 
         # Step 1: Preprocessing
-        metadata = extract_video_metadata(video_path)
+        analysis_video_path = prepare_analysis_video(video_path)
+        metadata = extract_video_metadata(analysis_video_path)
         fps = metadata.get("fps", 30.0)
         total_frames = metadata.get("total_frames", 300)
 
@@ -62,7 +69,7 @@ def process_video_pipeline(match_id: str, video_path: str):
 
         # Read multiple sample frames from video for robust court detection (multi-frame averaging)
         sample_frames = []
-        for _, _, f_img in frame_generator(video_path, max_frames=15):
+        for _, _, f_img in frame_generator(analysis_video_path, max_frames=15):
             sample_frames.append(f_img)
             if len(sample_frames) >= 5:
                 break
@@ -104,7 +111,7 @@ def process_video_pipeline(match_id: str, video_path: str):
         # Adaptive Frame Stride: Target ~15 FPS analysis for lightning fast processing & 60fps interpolation
         step_stride = max(2, int(fps / 15)) if fps > 15 else 1
 
-        for frame_idx, timestamp, frame in frame_generator(video_path, max_frames=None):
+        for frame_idx, timestamp, frame in frame_generator(analysis_video_path, max_frames=None):
             if is_job_cancelled(match_id):
                 print(f"[Worker] Match {match_id} cancelled by user. Terminating worker.")
                 return
@@ -116,7 +123,7 @@ def process_video_pipeline(match_id: str, video_path: str):
             raw_dets = detector.run_frame(frame)
 
             # Run tracking
-            tracked = tracker.update(raw_dets, frame_idx, timestamp)
+            tracked = tracker.update(raw_dets, frame_idx, timestamp, frame=frame)
 
             # Scoreboard & Jersey OCR scan (scans frames 6, 25, 60 until both names found)
             if (not ocr_scanned or len(extracted_names.get("extracted_list", [])) < 2) and frame_count in [6, 25, 60]:
@@ -331,3 +338,4 @@ def process_video_pipeline(match_id: str, video_path: str):
         update_job_status(match_id, status="failed", progress=0, stage="error", error=str(e))
     finally:
         clear_partial_analytics(match_id)
+        cleanup_analysis_video(analysis_video_path, video_path)

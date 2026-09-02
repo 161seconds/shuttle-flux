@@ -9,6 +9,28 @@ export interface ProcessingStatus {
   error_message?: string;
 }
 
+export interface RuntimeComponent {
+  available: boolean;
+  active: boolean;
+  version?: string | null;
+  device?: string | null;
+  engine?: string;
+  providers?: string[];
+}
+
+export interface RuntimeStatus {
+  selected_backend: string;
+  inference_mode: "local" | "remote";
+  components: Record<string, RuntimeComponent>;
+  inference_service?: {
+    configured: boolean;
+    reachable: boolean;
+    url?: string | null;
+    runtime?: RuntimeStatus;
+    error?: string;
+  };
+}
+
 export interface PlayerStatsData {
   player_id: number;
   label: string;
@@ -210,6 +232,14 @@ export async function getProcessingStatus(matchId: string): Promise<ProcessingSt
   const res = await fetch(`${API_BASE_URL}/api/v1/matches/${matchId}/processing`);
   if (!res.ok) {
     throw new Error("Failed to fetch processing status");
+  }
+  return res.json();
+}
+
+export async function getRuntimeStatus(): Promise<RuntimeStatus> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/runtime`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error("Failed to fetch runtime status");
   }
   return res.json();
 }

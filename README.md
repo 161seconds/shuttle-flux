@@ -53,7 +53,7 @@ shuttle-flux/
 ```bash
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-pip install -r requirements.txt # or manual packages
+pip install -r apps/api/requirements.txt
 uvicorn apps.api.main:app --reload --port 8000
 ```
 
@@ -65,3 +65,8 @@ pnpm run dev
 ```
 Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
+### AI acceleration stack
+
+Shuttle Flux now supports PyTorch/Ultralytics YOLO, SAM 3 refinement, ONNX Runtime, TensorRT/CUDA, OpenCV, Deep-EIoU + OSNet ReID, OCR, homography, a Flask inference service, the Next.js client, and FFmpeg normalization. Optional models and GPU providers activate only when their weights/runtime are actually available.
+
+See [docs/ai-vision-stack.md](./docs/ai-vision-stack.md) for model setup, export commands, environment variables, service commands, and Docker GPU usage.

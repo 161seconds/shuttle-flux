@@ -4,26 +4,35 @@ Coordinates player tracking and shuttle trajectory smoothing across video frames
 """
 
 from typing import List, Dict, Any, Optional
+import numpy as np
 from ml.tracking.tracker import PlayerTracker
 from ml.tracking.shuttle_tracker import ShuttleTrajectoryTracker
+from ml.reid.osnet import OSNetEmbedder
+from ml.runtime.capabilities import get_runtime_capabilities
 
 
 class TrackingPipeline:
     def __init__(self):
         self.player_tracker = PlayerTracker()
         self.shuttle_tracker = ShuttleTrajectoryTracker()
+        cuda_available = get_runtime_capabilities()["components"]["cuda"]["available"]
+        self.reid_embedder = OSNetEmbedder(device="0" if cuda_available else "cpu")
 
     def update(
         self,
         detections: Dict[str, Any],
         frame_idx: int,
         timestamp: float,
+        frame: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """
         Updates trackers with raw detections for a given frame.
         """
         player_dets = detections.get("players", [])
         shuttle_det = detections.get("shuttle")
+
+        if frame is not None:
+            player_dets = self.reid_embedder.attach_embeddings(frame, player_dets)
 
         tracked_players = self.player_tracker.update(player_dets, frame_idx)
         tracked_shuttle = self.shuttle_tracker.update(shuttle_det, frame_idx, timestamp)

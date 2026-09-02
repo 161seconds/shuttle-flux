@@ -1,0 +1,28 @@
+services:
+  inference:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.inference.gpu
+    environment:
+      - VISION_BACKEND=auto
+      - ENABLE_SAM3=1
+      - SAM3_MODEL_PATH=/app/models/sam3.pt
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  worker:
+    environment:
+      - ENABLE_OSNET=1
+      - OSNET_MODEL_PATH=/app/models/osnet_x0_25.onnx
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
