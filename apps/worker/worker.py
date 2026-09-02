@@ -67,32 +67,74 @@ def process_video_pipeline(match_id: str, video_path: str):
         calibrator = CourtCalibrator(is_doubles=False)
         court_detector = CourtKeypointDetector()
 
-        # Read multiple sample frames from video for robust court detection (multi-frame averaging)
+        # Sample across the opening seconds so intros, occlusions, and motion blur
+        # cannot force calibration from a single weak frame.
         sample_frames = []
-        for _, _, f_img in frame_generator(analysis_video_path, max_frames=15):
+        calibration_window = min(
+            int(total_frames), max(60, int(float(fps) * 12.0))
+        )
+        calibration_stride = max(1, calibration_window // 8)
+        for sample_idx, _, f_img in frame_generator(
+            analysis_video_path, max_frames=calibration_window
+        ):
+            if sample_idx % calibration_stride != 0:
+                continue
             sample_frames.append(f_img)
-            if len(sample_frames) >= 5:
+            if len(sample_frames) >= 8:
                 break
 
-        vid_w = float(metadata.get("width", 1280))
-        vid_h = float(metadata.get("height", 720))
-
-        # Run court detection on multiple frames for stability (detector averages internally)
+        # The detector retains only the strongest BWF-template fit.
         court_kp = None
         if sample_frames:
             for sf in sample_frames:
                 court_kp = court_detector.detect_keypoints(sf)
-        else:
-            dummy = np.zeros((int(vid_h), int(vid_w), 3), dtype=np.uint8)
-            court_kp = court_detector.detect_keypoints(dummy)
 
-        calibrator.calibrate_standard_corners(
-            bottom_left_px=court_kp["corner_bottom_left"],
-            bottom_right_px=court_kp["corner_bottom_right"],
-            top_left_px=court_kp["corner_top_left"],
-            top_right_px=court_kp["corner_top_right"],
+        if court_kp is None:
+            raise RuntimeError("Khong doc duoc frame de can chinh san")
+
+        court_calibration = court_kp.get("calibration", {})
+        min_court_confidence = float(os.getenv("COURT_MIN_CONFIDENCE", "0.65"))
+        min_court_lines = int(os.getenv("COURT_MIN_DETECTED_LINES", "8"))
+        max_court_error = float(os.getenv("COURT_MAX_REPROJECTION_ERROR", "0.035"))
+        allow_court_fallback = os.getenv("ALLOW_COURT_FALLBACK", "0") == "1"
+        reprojection_error = court_calibration.get("reprojection_error_norm")
+        has_reliable_court = (
+            not court_calibration.get("used_fallback", True)
+            and float(court_calibration.get("confidence", 0.0)) >= min_court_confidence
+            and int(court_calibration.get("detected_line_count", 0)) >= min_court_lines
+            and reprojection_error is not None
+            and float(reprojection_error) <= max_court_error
+            and len(court_calibration.get("image_points", [])) >= 6
         )
+
+        if has_reliable_court:
+            calibrated = calibrator.calibrate_from_points(
+                court_calibration["image_points"],
+                court_calibration["court_points_norm"],
+            )
+        elif allow_court_fallback:
+            calibrated = calibrator.calibrate_standard_corners(
+                bottom_left_px=court_kp["corner_bottom_left"],
+                bottom_right_px=court_kp["corner_bottom_right"],
+                top_left_px=court_kp["corner_top_left"],
+                top_right_px=court_kp["corner_top_right"],
+            )
+            court_calibration = {
+                **court_calibration,
+                "source": "explicit-legacy-fallback",
+                "used_fallback": True,
+            }
+        else:
+            raise RuntimeError(
+                "Khong nhan dien du tin cay cac vach san cau long; "
+                "dung phan tich de tranh tao ban do 2D sai"
+            )
+
+        if not calibrated:
+            raise RuntimeError("Khong the tinh homography tu cac giao diem vach san")
+
         detected_court_nodes = court_kp.get("normalized_nodes", {})
+        detected_court_lines = court_kp.get("line_segments", {})
 
         if is_job_cancelled(match_id):
             return
@@ -103,8 +145,20 @@ def process_video_pipeline(match_id: str, video_path: str):
         tracker = TrackingPipeline()
         scoreboard_reader = ScoreboardReader()
 
-        extracted_names = {"player_1_name": "VĐV 1 (Gần)", "player_2_name": "VĐV 2 (Xa)", "source": "default"}
-        ocr_scanned = False
+        extracted_names = {
+            "player_1_name": "VĐV 1 (Gần)",
+            "player_2_name": "VĐV 2 (Xa)",
+            "player_1_country": None,
+            "player_2_country": None,
+            "score_player_1": None,
+            "score_player_2": None,
+            "serving_player_id": None,
+            "confidence": 0.0,
+            "source": "unresolved",
+            "extracted_list": [],
+        }
+        ocr_scan_times = [0.0, 5.0, 12.0]
+        ocr_scan_index = 0
         frame_records = []
         frame_count = 0
 
@@ -125,17 +179,59 @@ def process_video_pipeline(match_id: str, video_path: str):
             # Run tracking
             tracked = tracker.update(raw_dets, frame_idx, timestamp, frame=frame)
 
-            # Scoreboard & Jersey OCR scan (scans frames 6, 25, 60 until both names found)
-            if (not ocr_scanned or len(extracted_names.get("extracted_list", [])) < 2) and frame_count in [6, 25, 60]:
+            names_resolved = (
+                not extracted_names["player_1_name"].startswith("VĐV")
+                and not extracted_names["player_2_name"].startswith("VĐV")
+            )
+            if (
+                scoreboard_reader.available
+                and not names_resolved
+                and ocr_scan_index < len(ocr_scan_times)
+                and timestamp >= ocr_scan_times[ocr_scan_index]
+            ):
                 try:
-                    near_box = tracked.get("players", [{}])[0].get("bbox") if tracked.get("players") else None
+                    players_for_ocr = tracked.get("players", [])
+                    near_player = max(
+                        players_for_ocr,
+                        key=lambda player: player.get("bottom_center", [0, 0])[1],
+                        default=None,
+                    )
+                    near_box = near_player.get("bbox") if near_player else None
                     ocr_res = scoreboard_reader.extract_player_names_from_frame(frame, near_player_bbox=near_box)
-                    if ocr_res.get("source") != "default":
-                        extracted_names = ocr_res
-                        ocr_scanned = True
+                    changed = False
+                    for key in ("player_1_name", "player_2_name"):
+                        value = ocr_res.get(key)
+                        if value and extracted_names[key].startswith("VĐV"):
+                            extracted_names[key] = value
+                            changed = True
+                    for key in (
+                        "player_1_country",
+                        "player_2_country",
+                        "score_player_1",
+                        "score_player_2",
+                        "serving_player_id",
+                    ):
+                        if ocr_res.get(key) is not None:
+                            extracted_names[key] = ocr_res[key]
+                    extracted_names["confidence"] = max(
+                        float(extracted_names.get("confidence", 0.0)),
+                        float(ocr_res.get("confidence", 0.0)),
+                    )
+                    extracted_names["extracted_list"] = list(
+                        dict.fromkeys(
+                            extracted_names.get("extracted_list", [])
+                            + ocr_res.get("extracted_list", [])
+                        )
+                    )
+                    if changed:
+                        extracted_names["source"] = ocr_res.get(
+                            "source", "scoreboard_ocr"
+                        )
                         print(f"[Worker OCR] Extracted player names on frame {frame_idx}: {extracted_names}")
                 except Exception as ocr_err:
                     print(f"[Worker OCR Warning] {ocr_err}")
+                finally:
+                    ocr_scan_index += 1
 
             # Step 4: Transform to 2D court coordinates
             h, w, _ = frame.shape
@@ -168,7 +264,48 @@ def process_video_pipeline(match_id: str, video_path: str):
                         round(float(bbox[2] / w), 4),
                         round(float(bbox[3] / h), 4),
                     ]
+                pose = p.get("pose")
+                if pose and w > 0 and h > 0:
+                    p_copy["pose"] = {
+                        "source": pose.get("source"),
+                        "angles": pose.get("angles", {}),
+                        "keypoints": {
+                            name: [
+                                round(float(values[0] / w), 4),
+                                round(float(values[1] / h), 4),
+                                round(float(values[2]), 3),
+                            ]
+                            for name, values in pose.get("keypoints", {}).items()
+                        },
+                    }
                 transformed_players.append(p_copy)
+
+            transformed_rackets = []
+            for racket in tracked.get("rackets", []):
+                racket_copy = dict(racket)
+                bbox = racket.get("bbox", [0, 0, 0, 0])
+                center = racket.get("center", [0, 0])
+                if w > 0 and h > 0 and len(bbox) == 4:
+                    racket_copy["bbox_norm"] = [
+                        round(float(bbox[0] / w), 4),
+                        round(float(bbox[1] / h), 4),
+                        round(float(bbox[2] / w), 4),
+                        round(float(bbox[3] / h), 4),
+                    ]
+                    racket_copy["center_norm"] = [
+                        round(float(center[0] / w), 4),
+                        round(float(center[1] / h), 4),
+                    ]
+                if racket.get("keypoints") and w > 0 and h > 0:
+                    racket_copy["keypoints_norm"] = {
+                        name: [
+                            round(float(values[0] / w), 4),
+                            round(float(values[1] / h), 4),
+                            round(float(values[2]), 3),
+                        ]
+                        for name, values in racket["keypoints"].items()
+                    }
+                transformed_rackets.append(racket_copy)
 
             # Shuttle coordinates (Real detection only - NO fake floating yellow dot)
             shuttle = tracked.get("shuttle", {})
@@ -207,6 +344,7 @@ def process_video_pipeline(match_id: str, video_path: str):
                     "frame_idx": frame_idx,
                     "timestamp": round(timestamp, 3),
                     "players": transformed_players,
+                    "rackets": transformed_rackets,
                     "shuttle": shuttle_record,
                 }
             )
@@ -228,6 +366,9 @@ def process_video_pipeline(match_id: str, video_path: str):
                             "mode": "Đơn (Singles 1v1)",
                         },
                         "court_nodes": detected_court_nodes,
+                        "court_lines": detected_court_lines,
+                        "court_calibration": court_calibration,
+                        "scoreboard": dict(extracted_names),
                         "frame_records": list(frame_records),
                         "overview": {
                             "total_rallies": 0,
@@ -325,6 +466,8 @@ def process_video_pipeline(match_id: str, video_path: str):
         analytics_result["frame_records"] = frame_records
         analytics_result["scoreboard"] = extracted_names
         analytics_result["court_nodes"] = detected_court_nodes
+        analytics_result["court_lines"] = detected_court_lines
+        analytics_result["court_calibration"] = court_calibration
 
         # Step 6: Persist Results
         save_analytics_result(match_id, analytics_result)

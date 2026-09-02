@@ -69,4 +69,8 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
 Shuttle Flux now supports PyTorch/Ultralytics YOLO, SAM 3 refinement, ONNX Runtime, TensorRT/CUDA, OpenCV, Deep-EIoU + OSNet ReID, OCR, homography, a Flask inference service, the Next.js client, and FFmpeg normalization. Optional models and GPU providers activate only when their weights/runtime are actually available.
 
+Court calibration now fits every visible BWF marking across several video frames, refines homography from line intersections, and publishes the detected perspective lines to the web overlay. By default, processing stops when the court cannot be calibrated reliably instead of falling back to invented corners; thresholds are configurable through the `COURT_*` environment variables in `.env.example`.
+
+Athlete analysis also includes YOLO body pose, joint-angle extraction, wrist-based racket ownership, a zero-setup generic racket fallback, and an optional custom three-keypoint badminton racket model.
+
 See [docs/ai-vision-stack.md](./docs/ai-vision-stack.md) for model setup, export commands, environment variables, service commands, and Docker GPU usage.

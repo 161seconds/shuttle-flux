@@ -25,6 +25,10 @@ services:
       - YOLO_MODEL_PATH=/app/yolov8n.pt
       - ENABLE_SAM3=0
       - ENABLE_OSNET=0
+      - ENABLE_POSE=1
+      - POSE_MODEL_PATH=/app/models/yolo11n-pose.pt
+      - ENABLE_RACKET_DETECTION=1
+      - RACKET_MODEL_PATH=/app/models/racket-pose.pt
     volumes:
       - ../../models:/app/models
 
@@ -37,6 +41,10 @@ services:
       - DATABASE_URL=postgresql://user:password@postgres:5432/badminton_ai
       - INFERENCE_SERVICE_URL=http://inference:5001
       - ENABLE_FFMPEG_NORMALIZATION=1
+      - COURT_MIN_CONFIDENCE=0.65
+      - COURT_MIN_DETECTED_LINES=8
+      - COURT_MAX_REPROJECTION_ERROR=0.035
+      - ALLOW_COURT_FALLBACK=0
     depends_on:
       - redis
       - postgres

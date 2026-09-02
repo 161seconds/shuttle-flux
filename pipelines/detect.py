@@ -10,6 +10,8 @@ import cv2
 from ml.player_detection.detector import PlayerDetector
 from ml.shuttle_detection.detector import ShuttleDetector
 from ml.court_keypoints.detector import CourtKeypointDetector
+from ml.equipment.racket import RacketDetector
+from ml.pose.athlete_pose import AthletePoseEstimator
 from ml.segmentation.sam3 import SAM3PlayerRefiner
 
 
@@ -33,8 +35,12 @@ class DetectionPipeline:
         self.shuttle_detector = None
         self.court_detector = CourtKeypointDetector(court_model_path)
         self.sam3_refiner = None
+        self.pose_estimator = None
+        self.racket_detector = None
         self.frame_count = 0
         self.sam3_interval = max(1, int(os.getenv("SAM3_FRAME_INTERVAL", "10")))
+        self.pose_interval = max(1, int(os.getenv("POSE_FRAME_INTERVAL", "2")))
+        self.racket_interval = max(1, int(os.getenv("RACKET_FRAME_INTERVAL", "2")))
         if not self.use_remote:
             self._ensure_local_models()
 
@@ -45,6 +51,13 @@ class DetectionPipeline:
             self.shuttle_detector = ShuttleDetector(self.shuttle_model_path)
         if self.sam3_refiner is None:
             self.sam3_refiner = SAM3PlayerRefiner(device=self.player_detector.device)
+        if self.pose_estimator is None:
+            self.pose_estimator = AthletePoseEstimator()
+        if self.racket_detector is None:
+            self.racket_detector = RacketDetector(
+                shared_model=self.player_detector.model,
+                device=self.player_detector.device,
+            )
 
     def _run_remote(self, frame: np.ndarray) -> Dict[str, Any]:
         import requests
@@ -66,6 +79,7 @@ class DetectionPipeline:
         payload = response.json()
         return {
             "players": payload.get("players", []),
+            "rackets": payload.get("rackets", []),
             "shuttle": payload.get("shuttle"),
             "runtime": payload.get("runtime", {}),
         }
@@ -88,11 +102,20 @@ class DetectionPipeline:
         players = self.player_detector.detect(frame)
         if self.frame_count % self.sam3_interval == 0:
             players = self.sam3_refiner.refine(frame, players)
+        if self.frame_count % self.pose_interval == 0:
+            players = self.pose_estimator.enrich(frame, players)
+
+        rackets = []
+        if self.frame_count % self.racket_interval == 0:
+            self.racket_detector.shared_model = self.player_detector.model
+            self.racket_detector.device = self.player_detector.device
+            rackets = self.racket_detector.detect(frame)
         player_boxes = [p["bbox"] for p in players if "bbox" in p]
         shuttle = self.shuttle_detector.detect(frame, player_boxes=player_boxes)
 
         return {
             "players": players,
+            "rackets": rackets,
             "shuttle": shuttle,
             "runtime": self.player_detector.get_runtime_info(),
         }

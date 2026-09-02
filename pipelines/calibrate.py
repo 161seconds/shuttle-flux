@@ -73,19 +73,14 @@ class CourtCalibrator:
         if len(src_image_points) < 4 or len(dst_court_points_norm) < 4:
             return False
 
-        if HAS_ROBOFLOW_SPORTS:
-            try:
-                self.transformer = ViewTransformer(
-                    source=np.array(src_image_points, dtype=np.float32),
-                    target=np.array(dst_court_points_norm, dtype=np.float32),
-                )
-            except Exception:
-                self.transformer = None
-
         if HAS_OPENCV:
             src_pts = np.array(src_image_points, dtype=np.float32).reshape(-1, 1, 2)
             dst_pts = np.array(dst_court_points_norm, dtype=np.float32).reshape(-1, 1, 2)
-            H, status = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            # The destination is normalized, so a pixel-scale threshold such as
+            # 5.0 would accept almost every correspondence as an inlier.
+            H, status = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 0.02)
+            if status is not None and int(status.sum()) < 4:
+                H = None
         else:
             H = compute_dlt_homography(src_image_points, dst_court_points_norm)
 
@@ -93,6 +88,7 @@ class CourtCalibrator:
             return False
 
         self.H = H
+        self.transformer = None
         try:
             self.H_inv = np.linalg.inv(H)
         except np.linalg.LinAlgError:
@@ -128,6 +124,20 @@ class CourtCalibrator:
         if len(image_points) == 0:
             return np.empty((0, 2), dtype=np.float32)
 
+        if self.H is not None:
+            pts = np.array(image_points, dtype=np.float64)
+            ones = np.ones((pts.shape[0], 1), dtype=np.float64)
+            homogeneous = np.hstack([pts, ones])
+
+            transformed_h = homogeneous @ self.H.T
+            transformed = transformed_h[:, :2] / transformed_h[:, 2:3]
+
+            if clip_bounds:
+                transformed[:, 0] = np.clip(transformed[:, 0], 0.0, 1.0)
+                transformed[:, 1] = np.clip(transformed[:, 1], 0.0, 1.0)
+
+            return transformed.astype(np.float32)
+
         if self.transformer is not None:
             try:
                 pts = np.array(image_points, dtype=np.float32)
@@ -139,22 +149,7 @@ class CourtCalibrator:
             except Exception:
                 pass
 
-        if self.H is None:
-            return np.empty((0, 2), dtype=np.float32)
-
-        pts = np.array(image_points, dtype=np.float64)
-        # Homogeneous coordinates (N, 3)
-        ones = np.ones((pts.shape[0], 1), dtype=np.float64)
-        homogeneous = np.hstack([pts, ones])
-
-        transformed_h = homogeneous @ self.H.T
-        transformed = transformed_h[:, :2] / transformed_h[:, 2:3]
-
-        if clip_bounds:
-            transformed[:, 0] = np.clip(transformed[:, 0], 0.0, 1.0)
-            transformed[:, 1] = np.clip(transformed[:, 1], 0.0, 1.0)
-
-        return transformed.astype(np.float32)
+        return np.empty((0, 2), dtype=np.float32)
 
     def transform_court_to_image(self, court_points_norm: np.ndarray) -> np.ndarray:
         """

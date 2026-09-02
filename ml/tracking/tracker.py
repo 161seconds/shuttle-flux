@@ -153,8 +153,9 @@ class PlayerTracker:
     def _build_smoothed_track(
         self, p_id: int, cand: Dict[str, Any], side_label: str, frame_idx: int
     ) -> Dict[str, Any]:
+        previous_track = self.tracks.get(p_id, {})
         embedding = self._blend_embedding(
-            self.tracks.get(p_id, {}).get("embedding"), cand.get("embedding")
+            previous_track.get("embedding"), cand.get("embedding")
         )
         if p_id in self.tracks:
             prev_bbox = self.tracks[p_id]["bbox"]
@@ -177,6 +178,7 @@ class PlayerTracker:
                 "confidence": cand["confidence"],
                 "frame_idx": frame_idx,
                 "embedding": embedding,
+                "pose": cand.get("pose", previous_track.get("pose")),
             }
         else:
             return {
@@ -187,6 +189,7 @@ class PlayerTracker:
                 "confidence": cand["confidence"],
                 "frame_idx": frame_idx,
                 "embedding": embedding,
+                "pose": cand.get("pose"),
             }
 
     @staticmethod

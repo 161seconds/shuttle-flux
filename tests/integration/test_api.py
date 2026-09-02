@@ -28,6 +28,8 @@ def test_runtime_capabilities_contract():
     assert payload["inference_mode"] in {"local", "remote"}
     assert "ultralytics_yolo" in payload["components"]
     assert "deep_eiou" in payload["components"]
+    assert "athlete_pose" in payload["components"]
+    assert "racket_detection" in payload["components"]
     assert "inference_service" in payload
 
 

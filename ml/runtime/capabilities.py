@@ -65,6 +65,12 @@ def get_runtime_capabilities() -> Dict[str, Any]:
     osnet_path = Path(
         os.getenv("OSNET_MODEL_PATH", WORKSPACE_ROOT / "models" / "osnet_x0_25.onnx")
     )
+    pose_path = Path(
+        os.getenv("POSE_MODEL_PATH", WORKSPACE_ROOT / "models" / "yolo11n-pose.pt")
+    )
+    racket_path = Path(
+        os.getenv("RACKET_MODEL_PATH", WORKSPACE_ROOT / "models" / "racket-pose.pt")
+    )
     inference_url = os.getenv("INFERENCE_SERVICE_URL", "").strip()
     requested_backend = os.getenv("VISION_BACKEND", "auto").lower()
     onnx_path = Path(
@@ -117,11 +123,13 @@ def get_runtime_capabilities() -> Dict[str, Any]:
             "version": _package_version("ultralytics"),
         },
         "sam3": {
+            "enabled": sam3_enabled,
             "available": sam3_available,
             "active": sam3_enabled and sam3_available,
             "model_path": str(sam3_path),
         },
         "onnx": {
+            "enabled": requested_backend in {"auto", "onnx"},
             "available": bool(ort_version),
             "active": selected_backend == "onnx"
             or (osnet_enabled and osnet_onnx_available),
@@ -129,6 +137,7 @@ def get_runtime_capabilities() -> Dict[str, Any]:
             "providers": ort_providers,
         },
         "tensorrt": {
+            "enabled": requested_backend in {"auto", "tensorrt"},
             "available": tensorrt_available,
             "active": selected_backend == "tensorrt"
             or (
@@ -138,6 +147,7 @@ def get_runtime_capabilities() -> Dict[str, Any]:
             ),
         },
         "cuda": {
+            "enabled": requested_backend in {"auto", "pytorch", "onnx", "tensorrt"},
             "available": cuda_available,
             "active": cuda_available,
             "version": cuda_version,
@@ -149,7 +159,24 @@ def get_runtime_capabilities() -> Dict[str, Any]:
             "version": _package_version("opencv-python"),
         },
         "deep_eiou": {"available": True, "active": True, "implementation": "native"},
+        "athlete_pose": {
+            "enabled": os.getenv("ENABLE_POSE", "1") == "1",
+            "available": _module_available("ultralytics"),
+            "active": os.getenv("ENABLE_POSE", "1") == "1"
+            and _module_available("ultralytics"),
+            "model_path": str(pose_path),
+            "keypoints": 17,
+        },
+        "racket_detection": {
+            "enabled": os.getenv("ENABLE_RACKET_DETECTION", "1") == "1",
+            "available": _module_available("ultralytics"),
+            "active": os.getenv("ENABLE_RACKET_DETECTION", "1") == "1"
+            and _module_available("ultralytics"),
+            "model_path": str(racket_path),
+            "mode": "custom" if racket_path.is_file() else "coco-class-38-fallback",
+        },
         "osnet_reid": {
+            "enabled": osnet_enabled,
             "available": osnet_available,
             "active": osnet_enabled and osnet_available,
             "model_path": str(osnet_path),
@@ -161,12 +188,14 @@ def get_runtime_capabilities() -> Dict[str, Any]:
         },
         "homography": {"available": True, "active": True, "engine": "OpenCV"},
         "flask": {
+            "enabled": bool(inference_url),
             "available": _module_available("flask"),
             "active": False,
             "service_url": inference_url or None,
         },
         "javascript": {"available": True, "active": True, "engine": "Next.js/React"},
         "ffmpeg": {
+            "enabled": ffmpeg_enabled,
             "available": bool(ffmpeg_path),
             "active": ffmpeg_enabled and bool(ffmpeg_path),
             "path": ffmpeg_path,

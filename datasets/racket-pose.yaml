@@ -1,0 +1,11 @@
+path: racket_pose
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: racket
+
+# Keypoint order: handle, racket-head center, racket-head tip.
+kpt_shape: [3, 3]
+flip_idx: [0, 1, 2]

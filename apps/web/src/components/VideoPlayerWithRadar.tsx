@@ -26,6 +26,32 @@ import {
 import { MatchAnalytics, FrameRecord, ProcessingStatus, API_BASE_URL, updatePlayerNames } from "../lib/api";
 import { RadarCanvas } from "./RadarCanvas";
 
+const POSE_EDGES: Array<[string, string]> = [
+  ["left_shoulder", "right_shoulder"],
+  ["left_shoulder", "left_elbow"],
+  ["left_elbow", "left_wrist"],
+  ["right_shoulder", "right_elbow"],
+  ["right_elbow", "right_wrist"],
+  ["left_shoulder", "left_hip"],
+  ["right_shoulder", "right_hip"],
+  ["left_hip", "right_hip"],
+  ["left_hip", "left_knee"],
+  ["left_knee", "left_ankle"],
+  ["right_hip", "right_knee"],
+  ["right_knee", "right_ankle"],
+  ["nose", "left_eye"],
+  ["nose", "right_eye"],
+  ["left_eye", "left_ear"],
+  ["right_eye", "right_ear"],
+];
+
+const getPlayerPoseColor = (playerId: number) => {
+  if (playerId === 1) return "#22d3ee";
+  if (playerId === 2) return "#fbbf24";
+  if (playerId === 3) return "#38bdf8";
+  return "#fb923c";
+};
+
 interface VideoPlayerWithRadarProps {
   analytics: MatchAnalytics;
   selectedRallyTime?: number | null;
@@ -151,6 +177,12 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
   const frameRecords = analytics.frame_records || [];
   const matchId = analytics.metadata.match_id;
   const videoSrc = `${API_BASE_URL}/api/v1/matches/${matchId}/video`;
+  const scoreboard = analytics.scoreboard ?? {};
+  const p1Country = typeof scoreboard.player_1_country === "string" ? scoreboard.player_1_country : "---";
+  const p2Country = typeof scoreboard.player_2_country === "string" ? scoreboard.player_2_country : "---";
+  const p1Score = typeof scoreboard.score_player_1 === "number" ? scoreboard.score_player_1 : "-";
+  const p2Score = typeof scoreboard.score_player_2 === "number" ? scoreboard.score_player_2 : "-";
+  const servingPlayerId = typeof scoreboard.serving_player_id === "number" ? scoreboard.serving_player_id : null;
 
   // Update dynamic court nodes ONLY when a new match is loaded (NOT on periodic streaming polling)
   useEffect(() => {
@@ -417,6 +449,15 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
             <span>{showCourtMesh ? "Lưới Sân 3D: Bật" : "Lưới Sân 3D: Tắt"}</span>
           </button>
 
+          {analytics.court_calibration && !analytics.court_calibration.used_fallback && (
+            <span
+              className="rounded-lg border border-emerald-700/70 bg-emerald-950/50 px-2.5 py-1.5 font-mono text-[10px] text-emerald-300"
+              title={`Reprojection error: ${analytics.court_calibration.reprojection_error_norm ?? "n/a"}`}
+            >
+              Court AI {Math.round(analytics.court_calibration.confidence * 100)}% · {analytics.court_calibration.detected_line_count} lines
+            </span>
+          )}
+
           {/* Mode Switcher: Dual vs Single */}
           <div className="flex items-center bg-surface-light p-1 rounded-xl border border-gray-800">
             <button
@@ -646,6 +687,41 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                 const tr = courtNodes.top_right;
                 const bl = courtNodes.bottom_left;
                 const br = courtNodes.bottom_right;
+
+                const useDetectedLines =
+                  !isCalibrating &&
+                  !userHasEditedNodesRef.current &&
+                  analytics.court_lines &&
+                  Object.keys(analytics.court_lines).length > 0;
+
+                if (useDetectedLines) {
+                  return (
+                    <svg
+                      ref={svgMeshRef}
+                      className="pointer-events-none absolute inset-0 z-10 h-full w-full"
+                      viewBox="0 0 100 100"
+                      preserveAspectRatio="none"
+                    >
+                      {Object.entries(analytics.court_lines ?? {}).map(([name, points]) => {
+                        const [start, end] = points;
+                        const isOuter = name.startsWith("outer_") || name.endsWith("baseline");
+                        return (
+                          <line
+                            key={name}
+                            x1={start[0] * 100}
+                            y1={start[1] * 100}
+                            x2={end[0] * 100}
+                            y2={end[1] * 100}
+                            stroke={isOuter ? "#34d399" : "#10b981"}
+                            strokeWidth={isOuter ? "0.9" : "0.6"}
+                            opacity={isOuter ? "0.95" : "0.82"}
+                            vectorEffect="non-scaling-stroke"
+                          />
+                        );
+                      })}
+                    </svg>
+                  );
+                }
 
                 const dxL = bl[0] - tl[0];
                 const dyL = bl[1] - tl[1];
@@ -896,40 +972,44 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                 <div className="absolute inset-0 pointer-events-none p-3 flex flex-col justify-between z-20">
                   {/* Top Left BWF Broadcast Scoreboard HUD (True to Tournament Card Graphic) */}
                   <div className="flex flex-col bg-white/95 text-gray-900 rounded-xl border border-gray-300 shadow-2xl overflow-hidden min-w-[195px] max-w-[240px] self-start mt-1 pointer-events-auto backdrop-blur-md">
-                    {/* Top Row: Far Player (P2 - YU QI / CHN) */}
+                    {/* Far player: show OCR evidence only, never demo identity data. */}
                     <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-gray-200 bg-gradient-to-r from-gray-100 to-white">
                       <div className="flex items-center space-x-2 truncate">
                         {/* Country Flag Badge */}
                         <div className="flex items-center justify-center px-1.5 py-0.5 rounded bg-red-600 text-[9px] font-black text-white tracking-wider shadow-sm flex-shrink-0">
-                          CHN
+                          {p2Country}
                         </div>
                         <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight truncate">
-                          {p2Name || "YU QI"}
+                          {p2Name || "VĐV 2 (Xa)"}
                         </span>
                       </div>
                       <div className="flex items-center space-x-1.5 flex-shrink-0 ml-2">
+                        {servingPlayerId === 2 && (
+                          <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500 animate-pulse" />
+                        )}
                         <span className="px-2 py-0.5 bg-gray-700 text-white font-black text-xs rounded shadow-inner font-mono">
-                          1
+                          {p2Score}
                         </span>
                       </div>
                     </div>
 
-                    {/* Bottom Row: Near Player (P1 - KEAN YEW / SGP) */}
+                    {/* Near player: show OCR evidence only, never demo identity data. */}
                     <div className="flex items-center justify-between px-2.5 py-1.5 bg-white">
                       <div className="flex items-center space-x-2 truncate">
                         {/* Country Flag Badge */}
                         <div className="flex items-center justify-center px-1.5 py-0.5 rounded bg-red-700 text-[9px] font-black text-white tracking-wider shadow-sm flex-shrink-0">
-                          SGP
+                          {p1Country}
                         </div>
                         <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight truncate">
-                          {p1Name || "KEAN YEW"}
+                          {p1Name || "VĐV 1 (Gần)"}
                         </span>
                       </div>
                       <div className="flex items-center space-x-1.5 flex-shrink-0 ml-2">
-                        {/* Shuttlecock Serving Icon */}
-                        <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500 animate-pulse" />
+                        {servingPlayerId === 1 && (
+                          <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500 animate-pulse" />
+                        )}
                         <span className="px-2 py-0.5 bg-gray-700 text-white font-black text-xs rounded shadow-inner font-mono">
-                          1
+                          {p1Score}
                         </span>
                       </div>
                     </div>
@@ -946,6 +1026,86 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                   {/* Player & Shuttlecock Bounding Boxes (Strict Singles / Doubles filtering) */}
                   {currentFrame && (
                     <div className="absolute inset-0">
+                      <svg
+                        className="absolute inset-0 z-[6] h-full w-full pointer-events-none"
+                        viewBox="0 0 1 1"
+                        preserveAspectRatio="none"
+                      >
+                        {currentFrame.players.map((player) => {
+                          const keypoints = player.pose?.keypoints;
+                          if (!keypoints) return null;
+                          const color = getPlayerPoseColor(player.player_id || 1);
+                          return (
+                            <g key={`pose-${player.player_id}`}>
+                              {POSE_EDGES.map(([startName, endName]) => {
+                                const start = keypoints[startName];
+                                const end = keypoints[endName];
+                                if (!start || !end || start[2] < 0.25 || end[2] < 0.25) return null;
+                                return (
+                                  <line
+                                    key={`${startName}-${endName}`}
+                                    x1={start[0]}
+                                    y1={start[1]}
+                                    x2={end[0]}
+                                    y2={end[1]}
+                                    stroke={color}
+                                    strokeWidth="0.004"
+                                    vectorEffect="non-scaling-stroke"
+                                    className="drop-shadow-[0_0_3px_rgba(0,0,0,0.9)]"
+                                  />
+                                );
+                              })}
+                              {Object.entries(keypoints).map(([name, point]) =>
+                                point[2] >= 0.25 ? (
+                                  <circle
+                                    key={name}
+                                    cx={point[0]}
+                                    cy={point[1]}
+                                    r="0.006"
+                                    fill={color}
+                                    stroke="#020617"
+                                    strokeWidth="0.002"
+                                    vectorEffect="non-scaling-stroke"
+                                  />
+                                ) : null
+                              )}
+                            </g>
+                          );
+                        })}
+                        {(currentFrame.rackets ?? []).map((racket, index) => {
+                          const points = racket.keypoints_norm;
+                          const handle = points?.handle;
+                          const head = points?.head_center;
+                          const tip = points?.tip;
+                          if (!handle || !head || handle[2] < 0.2 || head[2] < 0.2) return null;
+                          return (
+                            <g key={`racket-pose-${racket.owner_id ?? index}`}>
+                              <line
+                                x1={handle[0]}
+                                y1={handle[1]}
+                                x2={head[0]}
+                                y2={head[1]}
+                                stroke="#a3e635"
+                                strokeWidth="0.005"
+                                vectorEffect="non-scaling-stroke"
+                              />
+                              {tip && tip[2] >= 0.2 && (
+                                <line
+                                  x1={head[0]}
+                                  y1={head[1]}
+                                  x2={tip[0]}
+                                  y2={tip[1]}
+                                  stroke="#bef264"
+                                  strokeWidth="0.004"
+                                  vectorEffect="non-scaling-stroke"
+                                />
+                              )}
+                              <circle cx={head[0]} cy={head[1]} r="0.01" fill="none" stroke="#d9f99d" strokeWidth="0.003" />
+                            </g>
+                          );
+                        })}
+                      </svg>
+
                       {(isDoublesMatch
                         ? currentFrame.players
                         : currentFrame.players.filter((p) => (p.player_id || 1) <= 2)
@@ -1019,6 +1179,30 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
                         );
                       })}
 
+                      {(currentFrame.rackets ?? []).map((racket, index) => {
+                        if (!racket.bbox_norm) return null;
+                        const [x1, y1, x2, y2] = racket.bbox_norm;
+                        return (
+                          <div
+                            key={`racket-${racket.owner_id ?? index}`}
+                            className="absolute z-20 rounded-md border border-lime-300 bg-lime-300/5 shadow-[0_0_10px_rgba(190,242,100,0.45)]"
+                            style={{
+                              left: `${x1 * 100}%`,
+                              top: `${y1 * 100}%`,
+                              width: `${Math.max(1.2, (x2 - x1) * 100)}%`,
+                              height: `${Math.max(2, (y2 - y1) * 100)}%`,
+                            }}
+                          >
+                            <span className="absolute -top-4 left-0 whitespace-nowrap rounded bg-lime-300 px-1 text-[8px] font-black text-black">
+                              VỢT P{racket.owner_id ?? "?"}
+                              {racket.speed_px_per_frame !== undefined
+                                ? ` · ${racket.speed_px_per_frame.toFixed(1)}px/f`
+                                : ""}
+                            </span>
+                          </div>
+                        );
+                      })}
+
                       {/* Real White Shuttlecock (Rendered ONLY when visible with smooth gliding transition) */}
                       {currentFrame.shuttle &&
                         currentFrame.shuttle.visible &&
@@ -1045,7 +1229,7 @@ export const VideoPlayerWithRadar: React.FC<VideoPlayerWithRadarProps> = ({
 
                   {/* Bottom Model Badge */}
                   <div className="text-right text-[10px] text-cyan-400 bg-black/80 px-2.5 py-0.5 rounded-md w-fit self-end font-mono border border-cyan-800/60 shadow-md">
-                    <span>YOLOv8 + Multi-Player Tracker ({isDoublesMatch ? "2v2 Doubles" : "1v1 Singles"})</span>
+                    <span>YOLO + Athlete Pose + Racket AI ({isDoublesMatch ? "2v2 Doubles" : "1v1 Singles"})</span>
                   </div>
                 </div>
               )}

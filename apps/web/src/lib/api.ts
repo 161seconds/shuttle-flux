@@ -12,10 +12,15 @@ export interface ProcessingStatus {
 export interface RuntimeComponent {
   available: boolean;
   active: boolean;
+  enabled?: boolean;
   version?: string | null;
   device?: string | null;
   engine?: string;
   providers?: string[];
+  model_path?: string;
+  mode?: string;
+  path?: string;
+  service_url?: string | null;
 }
 
 export interface RuntimeStatus {
@@ -66,6 +71,21 @@ export interface FrameRecord {
     bbox?: number[];
     bbox_norm?: [number, number, number, number];
     confidence?: number;
+    pose?: {
+      source?: string;
+      keypoints: Record<string, [number, number, number]>;
+      angles?: Record<string, number>;
+    };
+  }>;
+  rackets?: Array<{
+    owner_id?: number;
+    bbox_norm?: [number, number, number, number];
+    center_norm?: [number, number];
+    confidence?: number;
+    source?: string;
+    orientation_degrees?: number;
+    speed_px_per_frame?: number;
+    keypoints_norm?: Record<string, [number, number, number]>;
   }>;
   shuttle?: {
     x_norm: number;
@@ -82,6 +102,16 @@ export interface HitItem {
   player_id: number;
   shot_type: string;
   confidence: number;
+}
+
+export interface CourtCalibrationData {
+  source: string;
+  confidence: number;
+  detected_line_count: number;
+  initial_detected_line_count?: number;
+  reprojection_error_norm?: number | null;
+  used_fallback: boolean;
+  line_scores?: Record<string, number>;
 }
 
 export interface MatchAnalytics {
@@ -116,6 +146,8 @@ export interface MatchAnalytics {
   hits: HitItem[];
   heatmaps?: Record<string, any>;
   court_nodes?: Record<string, [number, number]>;
+  court_lines?: Record<string, [[number, number], [number, number]]>;
+  court_calibration?: CourtCalibrationData;
   scoreboard?: Record<string, any>;
   frame_records?: FrameRecord[];
 }
@@ -204,6 +236,8 @@ export function mergeMatchAnalytics(
     hits: Array.isArray(incoming.hits) ? incoming.hits : base.hits,
     heatmaps: incoming.heatmaps ?? base.heatmaps,
     court_nodes: incoming.court_nodes ?? base.court_nodes,
+    court_lines: incoming.court_lines ?? base.court_lines,
+    court_calibration: incoming.court_calibration ?? base.court_calibration,
     scoreboard: incoming.scoreboard ?? base.scoreboard,
     frame_records: Array.isArray(incoming.frame_records)
       ? incoming.frame_records
@@ -237,7 +271,10 @@ export async function getProcessingStatus(matchId: string): Promise<ProcessingSt
 }
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/runtime`, { cache: "no-store" });
+  const res = await fetch(`${API_BASE_URL}/api/v1/runtime`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(5000),
+  });
   if (!res.ok) {
     throw new Error("Failed to fetch runtime status");
   }
