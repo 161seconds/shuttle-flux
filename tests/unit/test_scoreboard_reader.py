@@ -40,3 +40,24 @@ def test_scoreboard_parser_never_invents_default_identities(monkeypatch):
     assert parsed["player_1_country"] is None
     assert parsed["player_2_country"] is None
     assert parsed["source"] == "unresolved"
+
+
+def test_scoreboard_parser_maps_rows_current_scores_and_known_flags(monkeypatch):
+    reader = _reader_without_model(monkeypatch)
+    results = [
+        (_box(55, 15, 110, 32), "LAI", 0.95),
+        (_box(55, 45, 135, 62), "GEMKE", 0.94),
+        (_box(180, 15, 205, 32), "21", 0.99),
+        (_box(215, 15, 240, 32), "20", 0.99),
+        (_box(180, 45, 205, 62), "19", 0.99),
+        (_box(215, 45, 240, 62), "17", 0.99),
+    ]
+
+    parsed = reader._parse_results(results, width=260, height=100)
+
+    assert parsed["player_1_name"] == "GEMKE"
+    assert parsed["player_2_name"] == "LAI"
+    assert parsed["player_1_country"] == "DEN"
+    assert parsed["player_2_country"] == "CAN"
+    assert parsed["score_player_1"] == 17
+    assert parsed["score_player_2"] == 20

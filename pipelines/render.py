@@ -101,6 +101,8 @@ def render_2d_radar_court(
     # Net (y = 0.5)
     net_y = int(y0 + 0.5 * court_h)
     cv2.line(radar, (x0, net_y), (x1, net_y), (255, 255, 255), 2)
+    cv2.circle(radar, (x0, net_y), 5, (255, 255, 255), -1)
+    cv2.circle(radar, (x1, net_y), 5, (255, 255, 255), -1)
 
     # Center Lines
     center_x = int(x0 + 0.5 * court_w)

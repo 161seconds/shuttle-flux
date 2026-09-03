@@ -39,7 +39,10 @@ class TrackingPipeline:
 
         tracked_players = self.player_tracker.update(player_dets, frame_idx)
         tracked_rackets = self.racket_tracker.update(racket_dets, tracked_players, frame_idx)
-        tracked_shuttle = self.shuttle_tracker.update(shuttle_det, frame_idx, timestamp)
+        frame_shape = frame.shape[:2] if frame is not None else None
+        tracked_shuttle = self.shuttle_tracker.update(
+            shuttle_det, frame_idx, timestamp, frame_shape=frame_shape
+        )
 
         return {
             "players": tracked_players,

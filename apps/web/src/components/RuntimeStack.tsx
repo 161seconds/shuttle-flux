@@ -15,6 +15,7 @@ const LABELS: Record<string, string> = {
   opencv: "OpenCV",
   deep_eiou: "Deep-EIoU",
   athlete_pose: "Athlete Pose",
+  shuttle_detection: "Shuttle AI",
   racket_detection: "Racket AI",
   osnet_reid: "OSNet ReID",
   ocr: "OCR",
@@ -129,7 +130,7 @@ export function RuntimeStack() {
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-px bg-white/5 sm:grid-cols-5 lg:grid-cols-9 xl:grid-cols-[repeat(17,minmax(0,1fr))]">
+      <div className="grid grid-cols-3 gap-px bg-white/5 sm:grid-cols-5 lg:grid-cols-9 xl:grid-cols-[repeat(18,minmax(0,1fr))]">
         {Object.entries(LABELS).map(([key, label]) => {
           const component = displayedRuntime?.components[key];
           const enabled = component?.enabled ?? true;

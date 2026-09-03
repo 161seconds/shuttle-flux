@@ -29,6 +29,7 @@ class ShuttleTrajectoryTracker:
         detection: Optional[Dict[str, Any]],
         frame_idx: int,
         timestamp: float,
+        frame_shape: Optional[tuple[int, int]] = None,
     ) -> Dict[str, Any]:
         """
         Updates shuttle trajectory with physical velocity gating and EMA smoothing.
@@ -53,13 +54,13 @@ class ShuttleTrajectoryTracker:
                     predicted_cx = self.last_valid_pos[0] + self.velocity[0] * drag
                     predicted_cy = self.last_valid_pos[1] + self.velocity[1] * drag
                     
+                    jump_limit = self._jump_limit(frame_shape)
                     # Find candidate closest to predicted position
                     best_dist = float('inf')
                     for cand in candidates:
                         cx, cy = cand["center"]
                         dist = np.hypot(cx - predicted_cx, cy - predicted_cy)
-                        # Maximum allowed jump distance for a candidate (e.g. 300 pixels)
-                        if dist < 300 and dist < best_dist:
+                        if dist < jump_limit and dist < best_dist:
                             best_dist = dist
                             best_candidate = cand
                 else:
@@ -74,8 +75,7 @@ class ShuttleTrajectoryTracker:
                 prev_cx, prev_cy = self.last_valid_pos
                 dist_jump = np.hypot(cx - prev_cx, cy - prev_cy)
                 
-                # If jump exceeds 300 pixels in 1 frame (~30% of 1080p), treat as outlier noise
-                if dist_jump > 300:
+                if dist_jump > self._jump_limit(frame_shape):
                     return self._handle_missing_extrapolation(frame_idx, timestamp)
 
             # 2. Smooth Position via Exponential Moving Average (EMA)
@@ -100,8 +100,10 @@ class ShuttleTrajectoryTracker:
             curr_point = dict(best_candidate)
             curr_point["frame_idx"] = frame_idx
             curr_point["timestamp"] = timestamp
-            curr_point["center"] = [round(self.last_valid_pos[0], 1), round(self.last_valid_pos[1], 1)]
+            # Show the measured point; filtered state remains internal for matching.
+            curr_point["center"] = [round(cx, 1), round(cy, 1)]
             curr_point["visible"] = True
+            curr_point["observed"] = True
             curr_point["confidence"] = best_candidate.get("confidence", 0.90)
 
             self.trajectory_history.append(curr_point)
@@ -113,8 +115,7 @@ class ShuttleTrajectoryTracker:
     def _handle_missing_extrapolation(self, frame_idx: int, timestamp: float) -> Dict[str, Any]:
         self.missing_count += 1
         
-        # Extrapolate smoothly for up to 4 frames with aerodynamic air drag
-        if self.missing_count <= 4 and self.last_valid_pos is not None:
+        if self.missing_count <= self.max_missing_frames and self.last_valid_pos is not None:
             self.state = "TEMPORARILY_MISSING"
             drag = 0.85 ** self.missing_count
             extrap_cx = self.last_valid_pos[0] + self.velocity[0] * drag
@@ -127,6 +128,7 @@ class ShuttleTrajectoryTracker:
             interpolated["timestamp"] = timestamp
             interpolated["center"] = [round(extrap_cx, 1), round(extrap_cy, 1)]
             interpolated["visible"] = True
+            interpolated["observed"] = False
             interpolated["confidence"] = max(0.3, last_rec.get("confidence", 0.8) * 0.75)
             
             self.trajectory_history.append(interpolated)
@@ -140,7 +142,15 @@ class ShuttleTrajectoryTracker:
                 "frame_idx": frame_idx,
                 "timestamp": timestamp,
                 "visible": False,
+                "observed": False,
                 "confidence": 0.0,
             }
             self.trajectory_history.append(point)
             return point
+
+    @staticmethod
+    def _jump_limit(frame_shape: Optional[tuple[int, int]]) -> float:
+        if frame_shape is None:
+            return 300.0
+        height, width = frame_shape
+        return max(120.0, float(np.hypot(width, height)) * 0.35)

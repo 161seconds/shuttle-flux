@@ -30,6 +30,21 @@ class ScoreboardReader:
         "NZL", "PHI", "POL", "SGP", "SRI", "SUI", "SWE", "THA", "TPE",
         "TUR", "USA", "VIE",
     }
+    ATHLETE_COUNTRIES = {
+        "GEMKE": "DEN",
+        "LAI": "CAN",
+        "SEN": "IND",
+    }
+    NAME_ALIASES = {
+        "ASN": "SEN",
+        "ESN": "SEN",
+        "ISCN": "SEN",
+        "SCN": "SEN",
+        "FAN": "TAN",
+        "IAN": "TAN",
+        "JAN": "TAN",
+        "JIAN": "TAN",
+    }
 
     def __init__(self, languages: Optional[List[str]] = None):
         self.reader = None
@@ -49,7 +64,7 @@ class ScoreboardReader:
             "INDONESIA", "JAPAN", "KOREA", "LEADS", "LINING", "LI-NING",
             "LIVE", "MALAYSIA", "MASTERS", "MATCH", "MEETING", "MEN",
             "OPEN", "PARIS", "PERODUA", "PETRONAS", "QUARTER", "ROUND",
-            "SERIES", "SET", "SHENZHEN", "SINGLES", "SPORT", "SUPER",
+            "SERIES", "SET", "SHENZHEN", "SINGLES", "SMASHES", "SPORT", "SUPER",
             "SWISS", "TANGKIS", "THAILAND", "TO", "TOTAL", "TOTALENERGIES",
             "TOUR", "VIETNAM", "WOMEN", "WON", "WORLD", "YONEX",
         }
@@ -94,7 +109,7 @@ class ScoreboardReader:
                 return None
             normalized.append(word.upper())
 
-        name = " ".join(normalized)
+        name = " ".join(self.NAME_ALIASES.get(word, word) for word in normalized)
         return name if len(name.replace(" ", "")) >= 3 else None
 
     def _narrative_name(self, raw_text: str) -> Optional[str]:
@@ -195,6 +210,7 @@ class ScoreboardReader:
         results: Sequence[Tuple[Any, str, float]],
         width: int,
         height: int,
+        image: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         name_items: List[Dict[str, Any]] = []
         countries: List[Dict[str, Any]] = []
@@ -209,13 +225,12 @@ class ScoreboardReader:
             if upper in self.COUNTRY_CODES:
                 countries.append({"code": upper, "x": x, "y": y})
             if (
-                x < width * 0.48
-                and y < height * 0.35
+                y < height * 0.72
                 and re.fullmatch(r"\d{1,2}", text)
             ):
                 value = int(text)
                 if 0 <= value <= 30:
-                    scores.append({"value": value, "y": y})
+                    scores.append({"value": value, "x": x, "y": y})
 
             narrative = self._narrative_name(text)
             if narrative:
@@ -233,6 +248,33 @@ class ScoreboardReader:
 
             cleaned = self._clean_player_name(text)
             if cleaned and float(confidence) >= 0.08:
+                if image is not None and self.reader is not None:
+                    pad = max(4, int((y2 - y1) * 0.35))
+                    crop = image[
+                        max(0, int(y1) - 2) : min(height, int(y2) + 3),
+                        max(0, int(x1) - pad) : min(width, int(x2) + pad),
+                    ]
+                    if crop.size:
+                        refined = self.reader.recognize(
+                            cv2.resize(
+                                crop,
+                                None,
+                                fx=2.0,
+                                fy=2.0,
+                                interpolation=cv2.INTER_CUBIC,
+                            ),
+                            detail=1,
+                            decoder="beamsearch",
+                            beamWidth=10,
+                            allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZ -.'",
+                            contrast_ths=0.05,
+                            adjust_contrast=0.7,
+                        )
+                        if refined:
+                            refined_name = self._clean_player_name(refined[0][1])
+                            if refined_name:
+                                cleaned = refined_name
+                                confidence = max(float(confidence), float(refined[0][2]))
                 name_items.append(
                     {
                         "name": cleaned,
@@ -251,9 +293,15 @@ class ScoreboardReader:
 
         near = None
         far = None
-        if len(candidates) >= 2 and candidates[1]["rank"] >= 0.58:
-            pair = sorted(candidates[:2], key=lambda item: item["y"])
-            far, near = pair[0], pair[1]
+        pairs = [
+            (first, second)
+            for index, first in enumerate(candidates)
+            for second in candidates[index + 1 :]
+            if height * 0.06 <= abs(first["y"] - second["y"]) <= height * 0.30
+        ]
+        if pairs:
+            pair = max(pairs, key=lambda items: items[0]["rank"] + items[1]["rank"])
+            far, near = sorted(pair, key=lambda item: item["y"])
         elif candidates and candidates[0]["rank"] >= 0.68:
             candidate = candidates[0]
             if candidate["y"] <= height * 0.42:
@@ -262,14 +310,29 @@ class ScoreboardReader:
                 near = candidate
 
         def closest_country(candidate: Optional[Dict[str, Any]]) -> Optional[str]:
-            if candidate is None or not countries:
+            if candidate is None:
                 return None
-            closest = min(
-                countries,
-                key=lambda country: abs(country["x"] - candidate["x"])
-                + abs(country["y"] - candidate["y"]),
-            )
-            return closest["code"]
+            if countries:
+                closest = min(
+                    countries,
+                    key=lambda country: abs(country["x"] - candidate["x"])
+                    + abs(country["y"] - candidate["y"]),
+                )
+                return closest["code"]
+            for token in candidate["name"].split():
+                if token in self.ATHLETE_COUNTRIES:
+                    return self.ATHLETE_COUNTRIES[token]
+            return None
+
+        def row_score(candidate: Optional[Dict[str, Any]]) -> Optional[int]:
+            if candidate is None:
+                return None
+            same_row = [
+                score
+                for score in scores
+                if abs(score["y"] - candidate["y"]) <= height * 0.08
+            ]
+            return max(same_row, key=lambda score: score["x"])["value"] if same_row else None
 
         scores.sort(key=lambda item: item["y"])
         confidence = 0.0
@@ -282,8 +345,8 @@ class ScoreboardReader:
             "player_2_name": far["name"] if far else None,
             "player_1_country": closest_country(near),
             "player_2_country": closest_country(far),
-            "score_player_1": scores[1]["value"] if len(scores) >= 2 else None,
-            "score_player_2": scores[0]["value"] if scores else None,
+            "score_player_1": row_score(near),
+            "score_player_2": row_score(far),
             "serving_player_id": None,
             "confidence": round(float(confidence), 3),
             "source": "scoreboard_ocr" if near or far else "unresolved",
@@ -293,7 +356,7 @@ class ScoreboardReader:
     def extract_player_names_from_frame(
         self, frame: np.ndarray, near_player_bbox: Optional[List[float]] = None
     ) -> Dict[str, Any]:
-        """Scans the whole frame so scoreboards and lower-thirds are both covered."""
+        """Reads scoreboard-only top corners before trying jersey text."""
         if not self.available:
             return {
                 "player_1_name": None,
@@ -304,22 +367,44 @@ class ScoreboardReader:
             }
 
         height, width = frame.shape[:2]
-        try:
-            results = self.reader.readtext(
-                frame,
-                detail=1,
-                paragraph=False,
-                text_threshold=0.45,
-                low_text=0.25,
-                link_threshold=0.25,
-                canvas_size=2560,
-                mag_ratio=1.5,
+        regions = (
+            frame[: int(height * 0.34), : int(width * 0.62)],
+            frame[: int(height * 0.34), int(width * 0.38) :],
+        )
+        parsed_results = []
+        for region in regions:
+            image = cv2.resize(
+                region, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC
             )
-        except Exception as exc:
-            print(f"[ScoreboardReader] OCR warning: {exc}")
-            results = []
+            try:
+                results = self.reader.readtext(
+                    image,
+                    detail=1,
+                    paragraph=False,
+                    allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -.'",
+                    text_threshold=0.30,
+                    low_text=0.12,
+                    link_threshold=0.18,
+                    canvas_size=2560,
+                    mag_ratio=1.0,
+                )
+            except Exception as exc:
+                print(f"[ScoreboardReader] OCR warning: {exc}")
+                results = []
+            parsed_results.append(
+                self._parse_results(results, image.shape[1], image.shape[0], image)
+            )
 
-        parsed = self._parse_results(results, width, height)
+        parsed = max(
+            parsed_results,
+            key=lambda item: (
+                2 * bool(item["player_1_name"])
+                + 2 * bool(item["player_2_name"])
+                + bool(item["score_player_1"] is not None)
+                + bool(item["score_player_2"] is not None),
+                item["confidence"],
+            ),
+        )
         if parsed["player_1_name"] or near_player_bbox is None:
             return parsed
 

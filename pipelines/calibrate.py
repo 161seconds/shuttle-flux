@@ -21,6 +21,21 @@ except ImportError:
     HAS_ROBOFLOW_SPORTS = False
 
 
+def player_floor_point(player: Dict[str, Any]) -> List[float]:
+    pose = (player.get("pose") or {}).get("keypoints", {})
+    ankles = [
+        pose[name]
+        for name in ("left_ankle", "right_ankle")
+        if name in pose and pose[name][2] >= 0.20
+    ]
+    if ankles:
+        return [
+            float(np.mean([point[0] for point in ankles])),
+            float(max(point[1] for point in ankles)),
+        ]
+    return list(player.get("bottom_center", [0.0, 0.0]))
+
+
 def compute_dlt_homography(
     src_points: List[Tuple[float, float]],
     dst_points: List[Tuple[float, float]],
@@ -166,6 +181,43 @@ class CourtCalibrator:
         transformed = transformed_h[:, :2] / transformed_h[:, 2:3]
 
         return transformed.astype(np.float32)
+
+    def filter_players(
+        self,
+        detections: List[Dict[str, Any]],
+        margin_x: float = 0.04,
+        margin_y: float = 0.12,
+    ) -> List[Dict[str, Any]]:
+        """Keeps people whose foot point belongs to the calibrated match court."""
+        valid = [detection for detection in detections if len(detection.get("bottom_center", [])) == 2]
+        if not valid:
+            return []
+
+        court_points = self.transform_image_to_court(
+            np.asarray([detection["bottom_center"] for detection in valid], dtype=np.float32),
+            clip_bounds=False,
+        )
+        if len(court_points) != len(valid):
+            return detections
+
+        players = []
+        for detection, (x_norm, y_norm) in zip(valid, court_points):
+            if -margin_x <= x_norm <= 1.0 + margin_x and -margin_y <= y_norm <= 1.0 + margin_y:
+                player = dict(detection)
+                player["role"] = "near" if y_norm >= 0.5 else "far"
+                players.append(player)
+        by_confidence = lambda player: player.get("confidence", 0.0)
+        far = sorted(
+            (player for player in players if player["role"] == "far"),
+            key=by_confidence,
+            reverse=True,
+        )[:2]
+        near = sorted(
+            (player for player in players if player["role"] == "near"),
+            key=by_confidence,
+            reverse=True,
+        )[:2]
+        return near + far
 
 
 def compute_homography(

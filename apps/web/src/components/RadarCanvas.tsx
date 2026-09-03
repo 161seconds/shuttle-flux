@@ -8,6 +8,13 @@ interface RadarCanvasProps {
   showVoronoi?: boolean;
 }
 
+const SINGLES_PAD = 0.46 / 6.1;
+const DOUBLES_LONG_FAR = 0.76 / 13.4;
+const SHORT_FAR = (6.7 - 1.98) / 13.4;
+const NET_Y = 0.5;
+const SHORT_NEAR = (6.7 + 1.98) / 13.4;
+const DOUBLES_LONG_NEAR = 1 - DOUBLES_LONG_FAR;
+
 export const RadarCanvas: React.FC<RadarCanvasProps> = ({
   currentFrame,
   width = 280,
@@ -15,9 +22,8 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
   showVoronoi = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const shuttleTrailRef = useRef<Array<{ x: number; y: number; time: number }>>([]);
-  const p1TrailRef = useRef<Array<{ x: number; y: number }>>([]);
-  const p2TrailRef = useRef<Array<{ x: number; y: number }>>([]);
+  const shuttleTrailRef = useRef<Array<{ x: number; y: number }>>([]);
+  const lastShuttleFrameRef = useRef<number | null>(null);
   const pulsePhaseRef = useRef<number>(0);
 
   useEffect(() => {
@@ -90,14 +96,14 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
       ctx.lineWidth = 2;
       ctx.strokeRect(x0, y0, courtW, courtH);
 
-      // Doubles sidelines (outer) & Singles sidelines (inner - 6% padding)
-      const singlesPad = courtW * 0.07;
+      // BWF singles sidelines sit 0.46m inside the 6.10m doubles court.
+      const singlesPad = courtW * SINGLES_PAD;
       ctx.strokeStyle = "#1f2937";
       ctx.lineWidth = 1;
       ctx.strokeRect(x0 + singlesPad, y0, courtW - 2 * singlesPad, courtH);
 
       // Net Line (y = 0.5) with cyan neon glow
-      const netY = y0 + 0.5 * courtH;
+      const netY = y0 + NET_Y * courtH;
       ctx.shadowColor = "#00e5ff";
       ctx.shadowBlur = 8;
       ctx.strokeStyle = "#00e5ff";
@@ -108,7 +114,33 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
       ctx.stroke();
       ctx.shadowBlur = 0; // Reset shadow
 
-      // Center Lines (P1 baseline to short service, P2 short service to baseline)
+      // Net posts
+      ctx.fillStyle = "#e5e7eb";
+      ctx.strokeStyle = "#00e5ff";
+      ctx.lineWidth = 1.5;
+      for (const postX of [x0 - 6, x1 + 6]) {
+        ctx.beginPath();
+        ctx.arc(postX, netY, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      const farDoublesLongY = y0 + DOUBLES_LONG_FAR * courtH;
+      const nearDoublesLongY = y0 + DOUBLES_LONG_NEAR * courtH;
+      const p1ServiceY = y0 + SHORT_FAR * courtH;
+      const p2ServiceY = y0 + SHORT_NEAR * courtH;
+
+      // Doubles long service lines, 0.76m inside each baseline.
+      ctx.strokeStyle = "#374151";
+      ctx.lineWidth = 1;
+      for (const serviceY of [farDoublesLongY, nearDoublesLongY]) {
+        ctx.beginPath();
+        ctx.moveTo(x0, serviceY);
+        ctx.lineTo(x1, serviceY);
+        ctx.stroke();
+      }
+
+      // Center Lines (baseline to short service line)
       const centerX = x0 + 0.5 * courtW;
       ctx.strokeStyle = "#374151";
       ctx.lineWidth = 1;
@@ -116,18 +148,16 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
       // P1 center line
       ctx.beginPath();
       ctx.moveTo(centerX, y0);
-      ctx.lineTo(centerX, y0 + 0.35 * courtH);
+      ctx.lineTo(centerX, p1ServiceY);
       ctx.stroke();
 
       // P2 center line
       ctx.beginPath();
-      ctx.moveTo(centerX, y0 + 0.65 * courtH);
+      ctx.moveTo(centerX, p2ServiceY);
       ctx.lineTo(centerX, y1);
       ctx.stroke();
 
-      // Short Service Lines (at ~35% and ~65%)
-      const p1ServiceY = y0 + 0.35 * courtH;
-      const p2ServiceY = y0 + 0.65 * courtH;
+      // Short service lines sit 1.98m from the net.
       ctx.strokeStyle = "#4b5563";
       ctx.beginPath();
       ctx.moveTo(x0, p1ServiceY);
@@ -145,27 +175,27 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
 
       if (currentFrame) {
         // 1. Render Shuttlecock Trajectory Trail (Smooth EMA Filtered)
-        if (currentFrame.shuttle && currentFrame.shuttle.visible && currentFrame.shuttle.x_norm !== undefined) {
+        if (
+          currentFrame.shuttle &&
+          currentFrame.shuttle.visible &&
+          currentFrame.shuttle.projection_valid === true &&
+          currentFrame.shuttle.x_norm !== undefined
+        ) {
           const rawSx = x0 + Math.max(0.02, Math.min(0.98, currentFrame.shuttle.x_norm)) * courtW;
           const rawSy = y0 + Math.max(0.02, Math.min(0.98, currentFrame.shuttle.y_norm)) * courtH;
 
-          // Smooth coordinate filtering across frame ticks
-          const lastPt = shuttleTrailRef.current[shuttleTrailRef.current.length - 1];
-          let sx = rawSx;
-          let sy = rawSy;
-
-          if (lastPt) {
-            // If distance is reasonable, apply gentle smoothing
-            const dist = Math.hypot(rawSx - lastPt.x, rawSy - lastPt.y);
-            if (dist < courtW * 0.4) {
-              sx = 0.45 * lastPt.x + 0.55 * rawSx;
-              sy = 0.45 * lastPt.y + 0.55 * rawSy;
+          const sx = rawSx;
+          const sy = rawSy;
+          if (lastShuttleFrameRef.current !== currentFrame.frame_idx) {
+            if (
+              lastShuttleFrameRef.current !== null &&
+              currentFrame.frame_idx <= lastShuttleFrameRef.current
+            ) {
+              shuttleTrailRef.current = [];
             }
-          }
-
-          shuttleTrailRef.current.push({ x: sx, y: sy, time: Date.now() });
-          if (shuttleTrailRef.current.length > 10) {
-            shuttleTrailRef.current.shift();
+            shuttleTrailRef.current.push({ x: sx, y: sy });
+            shuttleTrailRef.current = shuttleTrailRef.current.slice(-10);
+            lastShuttleFrameRef.current = currentFrame.frame_idx;
           }
 
           // Draw trailing glowing line
@@ -195,14 +225,15 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
         } else {
           // Clear trail if shuttle is not visible
           shuttleTrailRef.current = [];
+          lastShuttleFrameRef.current = currentFrame.frame_idx;
         }
 
         // 2. Render Players & Motion Trails (Supports 1v1 Singles & 2v2 Doubles)
-        const playerColorMap: Record<number, { solid: string; glow: string; fill: string; ring: string }> = {
-          1: { solid: "#00e5ff", glow: "#00e5ff", fill: "#000000", ring: "rgba(0, 229, 255, 0.4)" },
-          3: { solid: "#38bdf8", glow: "#38bdf8", fill: "#000000", ring: "rgba(56, 189, 248, 0.4)" },
-          2: { solid: "#f59e0b", glow: "#f59e0b", fill: "#000000", ring: "rgba(245, 158, 11, 0.4)" },
-          4: { solid: "#fb923c", glow: "#fb923c", fill: "#000000", ring: "rgba(251, 146, 60, 0.4)" },
+        const playerColorMap: Record<number, { solid: string; glow: string; ring: string }> = {
+          1: { solid: "#00e5ff", glow: "#00e5ff", ring: "rgba(0, 229, 255, 0.4)" },
+          3: { solid: "#38bdf8", glow: "#38bdf8", ring: "rgba(56, 189, 248, 0.4)" },
+          2: { solid: "#f59e0b", glow: "#f59e0b", ring: "rgba(245, 158, 11, 0.4)" },
+          4: { solid: "#fb923c", glow: "#fb923c", ring: "rgba(251, 146, 60, 0.4)" },
         };
 
         currentFrame.players.forEach((p) => {
@@ -219,20 +250,20 @@ export const RadarCanvas: React.FC<RadarCanvasProps> = ({
           ctx.arc(px, py, ringRadius, 0, Math.PI * 2);
           ctx.stroke();
 
-          // Solid Player Dot
+          // Athlete silhouette marker
           ctx.shadowColor = colors.glow;
           ctx.shadowBlur = 10;
           ctx.fillStyle = colors.solid;
           ctx.beginPath();
-          ctx.arc(px, py, 7.5, 0, Math.PI * 2);
+          ctx.arc(px, py - 5, 3.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(px, py - 1.5);
+          ctx.lineTo(px - 6, py + 7);
+          ctx.lineTo(px + 6, py + 7);
+          ctx.closePath();
           ctx.fill();
           ctx.shadowBlur = 0;
-
-          // Player ID label
-          ctx.fillStyle = colors.fill;
-          ctx.font = "bold 9px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText(`P${pId}`, px, py + 3);
         });
       }
 

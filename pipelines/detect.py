@@ -4,7 +4,7 @@ Orchestrates player detection, shuttlecock detection, and court keypoint models 
 """
 
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Callable, List, Optional
 import numpy as np
 import cv2
 from ml.player_detection.detector import PlayerDetector
@@ -88,22 +88,39 @@ class DetectionPipeline:
         """Detects keypoints of the court."""
         return self.court_detector.detect_keypoints(frame)
 
-    def run_frame(self, frame: np.ndarray) -> Dict[str, Any]:
+    def run_frame(
+        self,
+        frame: np.ndarray,
+        player_filter: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
+    ) -> Dict[str, Any]:
         """Runs player and shuttle detection on frame."""
         self.frame_count += 1
         if self.use_remote:
             try:
-                return self._run_remote(frame)
+                result = self._run_remote(frame)
+                if player_filter is not None:
+                    result["players"] = player_filter(result["players"])
+                return result
             except Exception as exc:
                 print(f"[DetectionPipeline] Remote inference failed, using local fallback: {exc}")
                 self.use_remote = False
 
         self._ensure_local_models()
-        players = self.player_detector.detect(frame)
+        players = self.player_detector.detect(
+            frame, use_frame_official_filter=player_filter is None
+        )
+        if player_filter is not None:
+            players = player_filter(players)
         if self.frame_count % self.sam3_interval == 0:
             players = self.sam3_refiner.refine(frame, players)
         if self.frame_count % self.pose_interval == 0:
-            players = self.pose_estimator.enrich(frame, players)
+            players = self.pose_estimator.enrich(
+                frame,
+                players,
+                include_unmatched=player_filter is not None,
+            )
+            if player_filter is not None:
+                players = player_filter(players)
 
         rackets = []
         if self.frame_count % self.racket_interval == 0:

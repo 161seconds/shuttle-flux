@@ -68,3 +68,18 @@ def test_detector_marks_blank_frame_as_fallback():
     assert result["calibration"]["used_fallback"] is True
     assert result["calibration"]["confidence"] == 0.0
     assert result["line_segments"] == {}
+
+
+def test_net_overlay_requires_visible_top_tape():
+    frame = np.zeros((360, 640, 3), dtype=np.uint8)
+    floor_left = (160.0, 240.0)
+    floor_right = (480.0, 240.0)
+
+    assert CourtKeypointDetector._detect_net(frame, floor_left, floor_right) is None
+
+    cv2.line(frame, (155, 170), (485, 170), (255, 255, 255), 5)
+    net = CourtKeypointDetector._detect_net(frame, floor_left, floor_right)
+
+    assert net is not None
+    assert abs(net["top_left"][1] - 170.0) < 5.0
+    assert net["bottom_left"][1] < floor_left[1]

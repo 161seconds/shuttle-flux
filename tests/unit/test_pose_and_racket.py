@@ -22,7 +22,11 @@ class _ArrayAdapter:
 
 class _PoseModel:
     def __init__(self, bbox, keypoints):
-        boxes = type("Boxes", (), {"xyxy": _ArrayAdapter([bbox])})()
+        boxes = type(
+            "Boxes",
+            (),
+            {"xyxy": _ArrayAdapter([bbox]), "conf": _ArrayAdapter([0.9])},
+        )()
         poses = type("Keypoints", (), {"data": _ArrayAdapter([keypoints])})()
         self.result = type("Result", (), {"boxes": boxes, "keypoints": poses})()
 
@@ -55,6 +59,20 @@ def test_pose_estimator_attaches_named_joints_and_angles(monkeypatch):
     assert result[0]["pose"]["angles"]["left_elbow"] == 180.0
 
 
+def test_pose_estimator_recovers_unmatched_far_player(monkeypatch):
+    monkeypatch.setenv("ENABLE_POSE", "1")
+    keypoints = np.full((len(KEYPOINT_NAMES), 3), [50.0, 30.0, 0.9], dtype=np.float32)
+    estimator = AthletePoseEstimator(model_path="unused.pt")
+    estimator.model = _PoseModel([35.0, 15.0, 65.0, 80.0], keypoints)
+
+    result = estimator.enrich(
+        np.zeros((120, 100, 3), dtype=np.uint8), [], include_unmatched=True
+    )
+
+    assert result[0]["bbox"] == [35.0, 15.0, 65.0, 80.0]
+    assert result[0]["pose"]["keypoints"]["nose"] == [50.0, 30.0, 0.9]
+
+
 def test_racket_tracker_uses_wrist_for_owner_and_holds_dropout():
     players = [
         {
@@ -82,6 +100,8 @@ def test_racket_tracker_uses_wrist_for_owner_and_holds_dropout():
     held = tracker.update([], players, frame_idx=11)
 
     assert detected[0]["owner_id"] == 1
+    assert detected[0]["keypoints"]["wrist"] == [42.0, 40.0, 0.9]
+    assert set(detected[0]["keypoints"]) == {"wrist", "handle", "head_center", "tip"}
     assert held[0]["owner_id"] == 1
     assert held[0]["confidence"] < detected[0]["confidence"]
 
@@ -91,6 +111,14 @@ def test_racket_detector_is_noop_when_disabled(monkeypatch):
     detector = RacketDetector(shared_model=object())
 
     assert detector.detect(np.zeros((32, 32, 3), dtype=np.uint8)) == []
+
+
+def test_racket_tracker_handles_player_without_pose():
+    tracker = RacketTracker()
+    players = [{"player_id": 1, "bbox": [0.0, 0.0, 50.0, 100.0], "pose": None}]
+    rackets = [{"bbox": [20.0, 20.0, 35.0, 60.0], "center": [27.5, 40.0], "confidence": 0.8}]
+
+    assert tracker.update(rackets, players, frame_idx=1)[0]["owner_id"] == 1
 
 
 def test_player_tracker_retains_pose_between_pose_intervals():

@@ -40,9 +40,9 @@ class RacketDetector:
         model = self.model if self.using_custom_model else self.shared_model
         options: Dict[str, Any] = {
             "source": frame,
-            "conf": float(os.getenv("RACKET_CONFIDENCE", "0.12")),
+            "conf": float(os.getenv("RACKET_CONFIDENCE", "0.08")),
             "imgsz": int(
-                os.getenv("RACKET_IMAGE_SIZE", "960" if self.using_custom_model else "640")
+                os.getenv("RACKET_IMAGE_SIZE", "960")
             ),
             "device": self.device,
             "verbose": False,

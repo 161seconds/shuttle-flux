@@ -6,6 +6,7 @@ Provides endpoints for video upload, job polling, analytics retrieval, and video
 import os
 import sys
 import uuid
+from pathlib import Path
 import numpy as np
 import json
 from urllib.error import URLError
@@ -359,7 +360,12 @@ async def stream_match_video(match_id: str):
     info = get_match_info(match_id)
     if not info or not os.path.exists(info["video_path"]):
         raise HTTPException(status_code=404, detail="Video file not found.")
-    return FileResponse(info["video_path"], media_type="video/mp4")
+    source = Path(info["video_path"])
+    enhanced = source.with_name(f"{source.stem}_enhanced.mp4")
+    return FileResponse(
+        enhanced if enhanced.exists() else source,
+        media_type="video/mp4",
+    )
 
 
 @app.get("/api/v1/matches")

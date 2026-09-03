@@ -68,6 +68,11 @@ def get_runtime_capabilities() -> Dict[str, Any]:
     pose_path = Path(
         os.getenv("POSE_MODEL_PATH", WORKSPACE_ROOT / "models" / "yolo11n-pose.pt")
     )
+    shuttle_path = Path(
+        os.getenv(
+            "SHUTTLE_MODEL_PATH", WORKSPACE_ROOT / "models" / "shuttle-yolo11.pt"
+        )
+    )
     racket_path = Path(
         os.getenv("RACKET_MODEL_PATH", WORKSPACE_ROOT / "models" / "racket-pose.pt")
     )
@@ -83,6 +88,7 @@ def get_runtime_capabilities() -> Dict[str, Any]:
     osnet_enabled = os.getenv("ENABLE_OSNET", "0") == "1"
     osnet_allow_download = os.getenv("OSNET_ALLOW_DOWNLOAD", "0") == "1"
     ffmpeg_enabled = os.getenv("ENABLE_FFMPEG_NORMALIZATION", "0") == "1"
+    shuttle_enabled = os.getenv("ENABLE_SHUTTLE_DETECTION", "1") == "1"
     torchreid_available = _module_available("torchreid")
     osnet_onnx_available = (
         osnet_path.suffix.lower() == ".onnx" and osnet_path.is_file() and bool(ort_version)
@@ -166,6 +172,19 @@ def get_runtime_capabilities() -> Dict[str, Any]:
             and _module_available("ultralytics"),
             "model_path": str(pose_path),
             "keypoints": 17,
+        },
+        "shuttle_detection": {
+            "enabled": shuttle_enabled,
+            "available": (
+                shuttle_path.is_file() and _module_available("ultralytics")
+            ) or (not shuttle_path.is_file() and _module_available("cv2")),
+            "active": shuttle_enabled
+            and (
+                (shuttle_path.is_file() and _module_available("ultralytics"))
+                or (not shuttle_path.is_file() and _module_available("cv2"))
+            ),
+            "model_path": str(shuttle_path),
+            "mode": "custom-yolo11" if shuttle_path.is_file() else "motion-fallback",
         },
         "racket_detection": {
             "enabled": os.getenv("ENABLE_RACKET_DETECTION", "1") == "1",

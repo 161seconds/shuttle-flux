@@ -88,7 +88,27 @@ def register_youtube_match(match_id: str, url: str) -> str:
 def get_match_info(match_id: str) -> Optional[Dict[str, Any]]:
     with _REGISTRY_LOCK:
         match = _MATCH_REGISTRY.get(match_id)
-        return dict(match) if match else None
+        if match:
+            return dict(match)
+
+    prefix = f"{match_id}."
+    candidates = [
+        os.path.join(MATCHES_DIR, name)
+        for name in os.listdir(MATCHES_DIR)
+        if name.startswith(prefix) and "_enhanced" not in name
+    ]
+    if not candidates:
+        return None
+    video_path = max(candidates, key=os.path.getmtime)
+    return {
+        "match_id": match_id,
+        "filename": os.path.basename(video_path),
+        "video_path": video_path,
+        "created_at": datetime.fromtimestamp(
+            os.path.getmtime(video_path), timezone.utc
+        ).isoformat(),
+        "status": "completed" if get_analytics_result(match_id) else "queued",
+    }
 
 
 def job_exists(match_id: str) -> bool:

@@ -58,6 +58,7 @@ class CourtKeypointDetector:
     def __init__(self, model_path: Optional[str] = None):
         self.model_path = model_path
         self._best_result: Optional[Dict[str, Any]] = None
+        self._best_net: Optional[Dict[str, Any]] = None
 
     def detect_keypoints(self, frame: np.ndarray) -> Dict[str, Any]:
         height, width = frame.shape[:2]
@@ -70,13 +71,23 @@ class CourtKeypointDetector:
             print(f"[CourtKeypointDetector] Court-line detection failed: {exc}")
             result = None
 
-        if result is not None and (
-            self._best_result is None
-            or result["calibration"]["confidence"]
-            > self._best_result["calibration"]["confidence"]
-        ):
-            self._best_result = result
-        return self._best_result or self._fallback_result(width, height)
+        if result is not None:
+            net = result.get("net_detection")
+            if net and (
+                self._best_net is None
+                or net["confidence"] > self._best_net["confidence"]
+            ):
+                self._best_net = net
+            if (
+                self._best_result is None
+                or result["calibration"]["confidence"]
+                > self._best_result["calibration"]["confidence"]
+            ):
+                self._best_result = result
+
+        output = dict(self._best_result or self._fallback_result(width, height))
+        output["net_detection"] = self._best_net
+        return output
 
     @staticmethod
     def _court_masks(frame: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -548,8 +559,122 @@ class CourtKeypointDetector:
             court_points = np.asarray(court_points)[keep].astype(float).tolist()
         return homography, source_points, court_points, peak_scores, error
 
+    @staticmethod
+    def _detect_net(
+        frame: np.ndarray, floor_left: Point, floor_right: Point
+    ) -> Optional[Dict[str, Any]]:
+        """Finds visible top tape; no detected tape means no net overlay."""
+        height, width = frame.shape[:2]
+        floor_width = abs(floor_right[0] - floor_left[0])
+        if floor_width < width * 0.20:
+            return None
+
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        white = cv2.inRange(
+            hsv,
+            np.array([0, 0, 155], dtype=np.uint8),
+            np.array([180, 105, 255], dtype=np.uint8),
+        )
+        x_min = max(0, int(min(floor_left[0], floor_right[0]) - floor_width * 0.06))
+        x_max = min(width, int(max(floor_left[0], floor_right[0]) + floor_width * 0.06))
+        floor_y = (floor_left[1] + floor_right[1]) / 2.0
+        y_min = max(0, int(floor_y - height * 0.24))
+        y_max = min(height, int(floor_y - height * 0.025))
+        if x_max <= x_min or y_max <= y_min:
+            return None
+
+        roi = white[y_min:y_max, x_min:x_max]
+        roi = cv2.morphologyEx(
+            roi,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(
+                cv2.MORPH_RECT, (max(15, int(floor_width * 0.05)), 3)
+            ),
+        )
+        lines = cv2.HoughLinesP(
+            roi,
+            1,
+            np.pi / 720.0,
+            threshold=max(18, int(floor_width * 0.12)),
+            minLineLength=max(30, int(floor_width * 0.32)),
+            maxLineGap=max(12, int(floor_width * 0.10)),
+        )
+        if lines is None:
+            return None
+
+        best = None
+        best_score = 0.0
+        for raw_x1, raw_y1, raw_x2, raw_y2 in np.asarray(lines).reshape(-1, 4):
+            x1, x2 = float(raw_x1 + x_min), float(raw_x2 + x_min)
+            y1, y2 = float(raw_y1 + y_min), float(raw_y2 + y_min)
+            if x2 < x1:
+                x1, x2, y1, y2 = x2, x1, y2, y1
+            dx, dy = x2 - x1, y2 - y1
+            if dx <= 1.0 or abs(math.degrees(math.atan2(dy, dx))) > 8.0:
+                continue
+            center_x = (x1 + x2) / 2.0
+            amount = (center_x - floor_left[0]) / max(
+                floor_right[0] - floor_left[0], 1e-6
+            )
+            floor_y_at_center = floor_left[1] + amount * (
+                floor_right[1] - floor_left[1]
+            )
+            gap = floor_y_at_center - (y1 + y2) / 2.0
+            if not height * 0.035 <= gap <= height * 0.22:
+                continue
+
+            samples_x = np.linspace(x1, x2, 60)
+            slope = dy / dx
+            samples_y = y1 + (samples_x - x1) * slope
+            xs = np.clip(np.rint(samples_x).astype(int), 0, width - 1)
+            ys = np.clip(np.rint(samples_y).astype(int), 0, height - 1)
+            support = float(
+                np.mean(
+                    [
+                        white[max(0, y - 2) : min(height, y + 3), x].max()
+                        for x, y in zip(xs, ys)
+                    ]
+                )
+                / 255.0
+            )
+            span = min(1.0, dx / floor_width)
+            centered = max(
+                0.0,
+                1.0
+                - abs(center_x - (floor_left[0] + floor_right[0]) / 2.0)
+                / floor_width,
+            )
+            score = 0.55 * span + 0.35 * support + 0.10 * centered
+            if score > best_score:
+                best_score = score
+                best = x1, y1, x2, y2, slope
+
+        if best is None or best_score < 0.48:
+            return None
+
+        x1, y1, _, _, slope = best
+        top_left = (floor_left[0], y1 + (floor_left[0] - x1) * slope)
+        top_right = (floor_right[0], y1 + (floor_right[0] - x1) * slope)
+        left_height = floor_left[1] - top_left[1]
+        right_height = floor_right[1] - top_right[1]
+        if min(left_height, right_height) <= height * 0.03:
+            return None
+
+        depth_ratio = 0.76 / 1.55
+        return {
+            "top_left": top_left,
+            "top_right": top_right,
+            "bottom_left": (top_left[0], top_left[1] + left_height * depth_ratio),
+            "bottom_right": (top_right[0], top_right[1] + right_height * depth_ratio),
+            "floor_left": floor_left,
+            "floor_right": floor_right,
+            "confidence": round(float(np.clip(best_score, 0.0, 1.0)), 3),
+        }
+
     def _build_result(
         self,
+        frame: np.ndarray,
         homography: np.ndarray,
         source_points: List[List[float]],
         court_points: List[List[float]],
@@ -582,9 +707,6 @@ class CourtKeypointDetector:
             "far_service_left": (0.0, SHORT_SERVICE_FAR_Y),
             "far_service_center": (0.5, SHORT_SERVICE_FAR_Y),
             "far_service_right": (1.0, SHORT_SERVICE_FAR_Y),
-            "net_left": (0.0, NET_Y),
-            "net_center": (0.5, NET_Y),
-            "net_right": (1.0, NET_Y),
             "near_service_left": (0.0, SHORT_SERVICE_NEAR_Y),
             "near_service_center": (0.5, SHORT_SERVICE_NEAR_Y),
             "near_service_right": (1.0, SHORT_SERVICE_NEAR_Y),
@@ -607,13 +729,16 @@ class CourtKeypointDetector:
         line_segments = {}
         line_scores = {}
         for name, (start, end) in COURT_LINES.items():
-            first, second = image_point(start), image_point(end)
             base_name = "center" if name.startswith("center_") else name
+            line_score = peak_scores.get(base_name, 0.0)
+            if line_score < 0.10:
+                continue
+            first, second = image_point(start), image_point(end)
             line_segments[name] = [
                 [round(first[0] / width, 4), round(first[1] / height, 4)],
                 [round(second[0] / width, 4), round(second[1] / height, 4)],
             ]
-            line_scores[name] = peak_scores.get(base_name, 0.0)
+            line_scores[name] = round(line_score, 3)
 
         peak_mean = (
             float(np.mean(list(peak_scores.values()))) if peak_scores else 0.0
@@ -632,15 +757,24 @@ class CourtKeypointDetector:
         tl, tr, br, bl = (
             image_point(point) for point in ((0, 0), (1, 0), (1, 1), (0, 1))
         )
+        net_floor_left = image_point((0.0, NET_Y))
+        net_floor_right = image_point((1.0, NET_Y))
+        net_detection = self._detect_net(frame, net_floor_left, net_floor_right)
+        if net_detection:
+            net_detection = {
+                key: [round(value[0] / width, 4), round(value[1] / height, 4)]
+                if key != "confidence"
+                else value
+                for key, value in net_detection.items()
+            }
         return {
             "corner_top_left": tl,
             "corner_top_right": tr,
-            "net_left": image_point((0.0, NET_Y)),
-            "net_right": image_point((1.0, NET_Y)),
             "corner_bottom_left": bl,
             "corner_bottom_right": br,
             "normalized_nodes": normalized_nodes,
             "line_segments": line_segments,
+            "net_detection": net_detection,
             "calibration": {
                 "source": "bwf-line-template",
                 "confidence": round(confidence, 3),
@@ -668,6 +802,7 @@ class CourtKeypointDetector:
             self._refine_from_template(line_mask, quad)
         )
         return self._build_result(
+            frame,
             homography,
             source_points,
             court_points,
@@ -684,19 +819,16 @@ class CourtKeypointDetector:
         return {
             "corner_top_left": (width * 0.285, height * 0.442),
             "corner_top_right": (width * 0.715, height * 0.442),
-            "net_left": (width * 0.236, height * 0.533),
-            "net_right": (width * 0.764, height * 0.533),
             "corner_bottom_left": (width * 0.165, height * 0.895),
             "corner_bottom_right": (width * 0.835, height * 0.895),
             "normalized_nodes": {
                 "top_left": [0.285, 0.442],
                 "top_right": [0.715, 0.442],
-                "net_left": [0.236, 0.533],
-                "net_right": [0.764, 0.533],
                 "bottom_left": [0.165, 0.895],
                 "bottom_right": [0.835, 0.895],
             },
             "line_segments": {},
+            "net_detection": None,
             "calibration": {
                 "source": "legacy-fallback",
                 "confidence": 0.0,

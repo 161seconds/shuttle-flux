@@ -17,6 +17,70 @@ import numpy as np
 from ml.runtime.capabilities import get_runtime_capabilities
 
 
+def display_target_height(source_height: int) -> Optional[int]:
+    if source_height < 720:
+        return 720
+    if source_height < 1080:
+        return 1080
+    return None
+
+
+def prepare_display_video(video_path: str) -> str:
+    """Creates a persistent Lanczos-upscaled copy for clearer browser playback."""
+    if os.getenv("ENABLE_VIDEO_UPSCALE", "1") != "1":
+        return video_path
+
+    metadata = extract_video_metadata(video_path)
+    target_height = display_target_height(metadata["height"])
+    ffmpeg_path = get_runtime_capabilities()["components"]["ffmpeg"].get("path")
+    if target_height is None or not ffmpeg_path:
+        return video_path
+
+    source = Path(video_path).resolve()
+    output = source.with_name(f"{source.stem}_enhanced.mp4")
+    if output.exists() and output.stat().st_mtime >= source.stat().st_mtime:
+        return str(output)
+
+    command = [
+        str(ffmpeg_path),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(source),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-vf",
+        f"scale=-2:{target_height}:flags=lanczos",
+        "-c:v",
+        "libx264",
+        "-preset",
+        os.getenv("FFMPEG_PRESET", "veryfast"),
+        "-crf",
+        os.getenv("DISPLAY_VIDEO_CRF", "18"),
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        str(output),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        print(f"[FFmpeg] Created {target_height}p display video: {output}")
+        return str(output)
+    except Exception as exc:
+        output.unlink(missing_ok=True)
+        print(f"[FFmpeg] Display upscale failed, using original video: {exc}")
+        return video_path
+
+
 def prepare_analysis_video(video_path: str) -> str:
     """Creates an FFmpeg-normalized analysis copy while preserving the uploaded source."""
     if os.getenv("ENABLE_FFMPEG_NORMALIZATION", "0") != "1":

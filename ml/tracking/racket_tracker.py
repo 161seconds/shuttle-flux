@@ -15,7 +15,7 @@ class RacketTracker:
     @staticmethod
     def _owner_distance(racket: Dict[str, Any], player: Dict[str, Any]) -> float:
         center = np.asarray(racket["center"], dtype=np.float32)
-        pose = player.get("pose", {}).get("keypoints", {})
+        pose = (player.get("pose") or {}).get("keypoints", {})
         wrists = [
             values
             for name in ("left_wrist", "right_wrist")
@@ -26,6 +26,47 @@ class RacketTracker:
         x1, y1, x2, y2 = player["bbox"]
         player_center = np.asarray([(x1 + x2) / 2.0, (y1 + y2) / 2.0])
         return float(np.linalg.norm(center - player_center))
+
+    @staticmethod
+    def _attach_skeleton(
+        racket: Dict[str, Any], player: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        result = dict(racket)
+        pose = (player.get("pose") or {}).get("keypoints", {})
+        wrists = [
+            values
+            for name in ("left_wrist", "right_wrist")
+            if (values := pose.get(name)) is not None and values[2] >= 0.20
+        ]
+        if not wrists:
+            return result
+
+        center = np.asarray(racket["center"], dtype=np.float32)
+        wrist = min(
+            wrists,
+            key=lambda point: float(
+                np.linalg.norm(center - np.asarray(point[:2], dtype=np.float32))
+            ),
+        )
+        keypoints = dict(result.get("keypoints") or {})
+        keypoints["wrist"] = list(wrist)
+        if "handle" not in keypoints or "head_center" not in keypoints:
+            handle = np.asarray(wrist[:2], dtype=np.float32)
+            direction = center - handle
+            length = float(np.linalg.norm(direction))
+            if length <= 1e-6:
+                return result
+            x1, y1, x2, y2 = racket["bbox"]
+            tip = center + direction / length * float(np.hypot(x2 - x1, y2 - y1)) * 0.45
+            keypoints.update(
+                {
+                    "handle": [round(float(handle[0]), 1), round(float(handle[1]), 1), wrist[2]],
+                    "head_center": [round(float(center[0]), 1), round(float(center[1]), 1), racket["confidence"]],
+                    "tip": [round(float(tip[0]), 1), round(float(tip[1]), 1), racket["confidence"]],
+                }
+            )
+        result["keypoints"] = keypoints
+        return result
 
     def _smooth(self, previous: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
         result = dict(current)
@@ -57,6 +98,7 @@ class RacketTracker:
             distance = self._owner_distance(racket, owner)
             if distance <= max_distance:
                 candidate = dict(racket)
+                candidate = self._attach_skeleton(candidate, owner)
                 candidate["owner_id"] = owner["player_id"]
                 candidate["frame_idx"] = frame_idx
                 candidate["wrist_distance"] = round(distance, 1)

@@ -86,17 +86,20 @@ class AthletePoseEstimator:
         return round(float(np.degrees(np.arccos(cosine))), 1)
 
     def enrich(
-        self, frame: np.ndarray, detections: List[Dict[str, Any]]
+        self,
+        frame: np.ndarray,
+        detections: List[Dict[str, Any]],
+        include_unmatched: bool = False,
     ) -> List[Dict[str, Any]]:
-        if not detections or not self._load():
+        if (not detections and not include_unmatched) or not self._load():
             return detections
 
         try:
             result = self.model.predict(
                 source=frame,
                 classes=[0],
-                conf=float(os.getenv("POSE_CONFIDENCE", "0.25")),
-                imgsz=int(os.getenv("POSE_IMAGE_SIZE", "640")),
+                conf=float(os.getenv("POSE_CONFIDENCE", "0.15")),
+                imgsz=int(os.getenv("POSE_IMAGE_SIZE", "960")),
                 device=self.device,
                 verbose=False,
             )[0]
@@ -104,12 +107,34 @@ class AthletePoseEstimator:
                 return detections
             pose_boxes = result.boxes.xyxy.detach().cpu().numpy()
             pose_data = result.keypoints.data.detach().cpu().numpy()
+            pose_confidences = result.boxes.conf.detach().cpu().numpy()
         except Exception as exc:
             print(f"[Pose] Frame inference failed: {exc}")
             return detections
 
         enriched = [dict(detection) for detection in detections]
         unused = set(range(min(len(pose_boxes), len(pose_data))))
+
+        def pose_payload(index: int) -> Dict[str, Any]:
+            named_keypoints: Dict[str, List[float]] = {}
+            for name, values in zip(KEYPOINT_NAMES, pose_data[index]):
+                x, y, confidence = values[:3]
+                named_keypoints[name] = [
+                    round(float(x), 1),
+                    round(float(y), 1),
+                    round(float(confidence), 3),
+                ]
+            angles = {
+                name: angle
+                for name, joints in ANGLE_JOINTS.items()
+                if (angle := self._joint_angle(named_keypoints, *joints)) is not None
+            }
+            return {
+                "source": "ultralytics-yolo-pose",
+                "keypoints": named_keypoints,
+                "angles": angles,
+            }
+
         for detection_index, detection in enumerate(detections):
             if not unused:
                 break
@@ -125,23 +150,21 @@ class AthletePoseEstimator:
             if overlap < 0.12:
                 continue
             unused.remove(best_index)
+            enriched[detection_index]["pose"] = pose_payload(best_index)
 
-            named_keypoints: Dict[str, List[float]] = {}
-            for name, values in zip(KEYPOINT_NAMES, pose_data[best_index]):
-                x, y, confidence = values[:3]
-                named_keypoints[name] = [
-                    round(float(x), 1),
-                    round(float(y), 1),
-                    round(float(confidence), 3),
-                ]
-            angles = {
-                name: angle
-                for name, joints in ANGLE_JOINTS.items()
-                if (angle := self._joint_angle(named_keypoints, *joints)) is not None
-            }
-            enriched[detection_index]["pose"] = {
-                "source": "ultralytics-yolo-pose",
-                "keypoints": named_keypoints,
-                "angles": angles,
-            }
+        if include_unmatched:
+            for index in unused:
+                x1, y1, x2, y2 = pose_boxes[index].astype(float).tolist()
+                confidence = float(pose_confidences[index])
+                enriched.append(
+                    {
+                        "bbox": [round(value, 1) for value in (x1, y1, x2, y2)],
+                        "bottom_center": [round((x1 + x2) / 2.0, 1), round(y2, 1)],
+                        "confidence": round(confidence, 3),
+                        "box_area": (x2 - x1) * (y2 - y1),
+                        "box_h": y2 - y1,
+                        "class": "player",
+                        "pose": pose_payload(index),
+                    }
+                )
         return enriched

@@ -19,8 +19,9 @@ from pipelines.preprocess import (
     extract_video_metadata,
     frame_generator,
     prepare_analysis_video,
+    prepare_display_video,
 )
-from pipelines.calibrate import CourtCalibrator
+from pipelines.calibrate import CourtCalibrator, player_floor_point
 from pipelines.detect import DetectionPipeline
 from pipelines.track import TrackingPipeline
 from pipelines.analyze import run_full_analytics
@@ -54,8 +55,12 @@ def process_video_pipeline(match_id: str, video_path: str):
         update_job_status(match_id, status="processing", progress=22, stage="preprocessing")
 
         # Step 1: Preprocessing
+        display_video_path = prepare_display_video(video_path)
         analysis_video_path = prepare_analysis_video(video_path)
         metadata = extract_video_metadata(analysis_video_path)
+        display_metadata = extract_video_metadata(display_video_path)
+        metadata["display_width"] = display_metadata["width"]
+        metadata["display_height"] = display_metadata["height"]
         fps = metadata.get("fps", 30.0)
         total_frames = metadata.get("total_frames", 300)
 
@@ -135,6 +140,7 @@ def process_video_pipeline(match_id: str, video_path: str):
 
         detected_court_nodes = court_kp.get("normalized_nodes", {})
         detected_court_lines = court_kp.get("line_segments", {})
+        detected_net = court_kp.get("net_detection")
 
         if is_job_cancelled(match_id):
             return
@@ -162,8 +168,9 @@ def process_video_pipeline(match_id: str, video_path: str):
         frame_records = []
         frame_count = 0
 
-        # Adaptive Frame Stride: Target ~15 FPS analysis for lightning fast processing & 60fps interpolation
-        step_stride = max(2, int(fps / 15)) if fps > 15 else 1
+        # Preserve every source frame up to the configured analysis rate.
+        target_fps = max(1.0, float(os.getenv("ANALYSIS_TARGET_FPS", "30")))
+        step_stride = max(1, int(round(fps / min(fps, target_fps))))
 
         for frame_idx, timestamp, frame in frame_generator(analysis_video_path, max_frames=None):
             if is_job_cancelled(match_id):
@@ -174,18 +181,13 @@ def process_video_pipeline(match_id: str, video_path: str):
                 continue
 
             # Run detection
-            raw_dets = detector.run_frame(frame)
+            raw_dets = detector.run_frame(frame, player_filter=calibrator.filter_players)
 
             # Run tracking
             tracked = tracker.update(raw_dets, frame_idx, timestamp, frame=frame)
 
-            names_resolved = (
-                not extracted_names["player_1_name"].startswith("VĐV")
-                and not extracted_names["player_2_name"].startswith("VĐV")
-            )
             if (
                 scoreboard_reader.available
-                and not names_resolved
                 and ocr_scan_index < len(ocr_scan_times)
                 and timestamp >= ocr_scan_times[ocr_scan_index]
             ):
@@ -201,7 +203,11 @@ def process_video_pipeline(match_id: str, video_path: str):
                     changed = False
                     for key in ("player_1_name", "player_2_name"):
                         value = ocr_res.get(key)
-                        if value and extracted_names[key].startswith("VĐV"):
+                        if value and (
+                            extracted_names[key].startswith("VĐV")
+                            or float(ocr_res.get("confidence", 0.0))
+                            >= float(extracted_names.get("confidence", 0.0))
+                        ):
                             extracted_names[key] = value
                             changed = True
                     for key in (
@@ -237,7 +243,7 @@ def process_video_pipeline(match_id: str, video_path: str):
             h, w, _ = frame.shape
             transformed_players = []
             for p in tracked.get("players", []):
-                bc = p.get("bottom_center", [w / 2.0, h / 2.0])
+                bc = player_floor_point(p)
                 pt_arr = np.array([[bc[0], bc[1]]], dtype=np.float32)
                 court_pt = calibrator.transform_image_to_court(pt_arr)
                 p_copy = dict(p)
@@ -320,7 +326,12 @@ def process_video_pipeline(match_id: str, video_path: str):
                     "y_norm": round(float(court_shuttle_pt[0, 1]), 4),
                     "center_norm": [round(float(cx / w), 4), round(float(cy / h), 4)],
                     "visible": True,
+                    "observed": shuttle.get("observed", False),
                     "confidence": shuttle.get("confidence", 0.85),
+                    # Monocular homography only maps the floor plane; airborne
+                    # shuttle depth/height needs a second calibrated camera.
+                    "projection_valid": False,
+                    "projection_mode": "image-only",
                     "speed_norm": round(
                         float(
                             np.hypot(
@@ -337,6 +348,7 @@ def process_video_pipeline(match_id: str, video_path: str):
                     "frame_idx": frame_idx,
                     "timestamp": round(timestamp, 3),
                     "visible": False,
+                    "observed": False,
                 }
 
             frame_records.append(
@@ -367,6 +379,7 @@ def process_video_pipeline(match_id: str, video_path: str):
                         },
                         "court_nodes": detected_court_nodes,
                         "court_lines": detected_court_lines,
+                        "net_detection": detected_net,
                         "court_calibration": court_calibration,
                         "scoreboard": dict(extracted_names),
                         "frame_records": list(frame_records),
@@ -441,11 +454,6 @@ def process_video_pipeline(match_id: str, video_path: str):
                 if (idx_curr - idx_prev <= 3) and (idx_next - idx_curr <= 3):
                     s_curr["x_norm"] = round(0.22 * s_prev["x_norm"] + 0.56 * s_curr["x_norm"] + 0.22 * s_next["x_norm"], 4)
                     s_curr["y_norm"] = round(0.22 * s_prev["y_norm"] + 0.56 * s_curr["y_norm"] + 0.22 * s_next["y_norm"], 4)
-                    if "center_norm" in s_curr and "center_norm" in s_prev and "center_norm" in s_next:
-                        s_curr["center_norm"] = [
-                            round(0.22 * s_prev["center_norm"][0] + 0.56 * s_curr["center_norm"][0] + 0.22 * s_next["center_norm"][0], 4),
-                            round(0.22 * s_prev["center_norm"][1] + 0.56 * s_curr["center_norm"][1] + 0.22 * s_next["center_norm"][1], 4),
-                        ]
 
         # Step 5: Analytics Calculation
         update_job_status(match_id, status="processing", progress=85, stage="analytics")
@@ -467,6 +475,7 @@ def process_video_pipeline(match_id: str, video_path: str):
         analytics_result["scoreboard"] = extracted_names
         analytics_result["court_nodes"] = detected_court_nodes
         analytics_result["court_lines"] = detected_court_lines
+        analytics_result["net_detection"] = detected_net
         analytics_result["court_calibration"] = court_calibration
 
         # Step 6: Persist Results

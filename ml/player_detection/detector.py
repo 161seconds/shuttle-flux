@@ -25,7 +25,7 @@ from ml.runtime.capabilities import resolve_yolo_runtime
 
 
 class PlayerDetector:
-    def __init__(self, model_path: Optional[str] = None, conf_threshold: float = 0.30):
+    def __init__(self, model_path: Optional[str] = None, conf_threshold: float = 0.18):
         self.conf_threshold = conf_threshold
         self.model = None
         self.runtime_backend = "unavailable"
@@ -49,7 +49,7 @@ class PlayerDetector:
 
     def _predict(self, frame: np.ndarray):
         options = {
-            "imgsz": 640,
+            "imgsz": int(os.getenv("PLAYER_IMAGE_SIZE", "960")),
             "classes": [0],
             "conf": self.conf_threshold,
             "device": self.device,
@@ -162,7 +162,9 @@ class PlayerDetector:
 
         return False
 
-    def detect(self, frame: np.ndarray) -> List[Dict[str, Any]]:
+    def detect(
+        self, frame: np.ndarray, use_frame_official_filter: bool = True
+    ) -> List[Dict[str, Any]]:
         """
         Detects active players in frame.
         Supports both 1v1 Singles (2 players) and 2v2 Doubles (up to 4 players).
@@ -191,7 +193,9 @@ class PlayerDetector:
                 norm_w = box_w / float(w)
 
                 # Check if person is referee / line judge / staff
-                if self.is_official_referee(norm_x, norm_y_bottom, norm_y_top, norm_h, norm_w):
+                if use_frame_official_filter and self.is_official_referee(
+                    norm_x, norm_y_bottom, norm_y_top, norm_h, norm_w
+                ):
                     continue
 
                 raw_detections.append(
@@ -206,6 +210,9 @@ class PlayerDetector:
                 )
 
             if raw_detections:
+                if not use_frame_official_filter:
+                    return raw_detections
+
                 # Sort by confidence descending, keep top detections to avoid ghost boxes
                 raw_detections.sort(key=lambda d: d["confidence"], reverse=True)
 

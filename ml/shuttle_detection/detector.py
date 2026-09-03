@@ -6,6 +6,8 @@ and player body exclusion. Returns multiple candidates to allow the tracker
 to pick the one that fits the physical trajectory.
 """
 
+import os
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 import numpy as np
 
@@ -21,14 +23,21 @@ class ShuttleDetector:
         self.conf_threshold = conf_threshold
         self.model = None
         self.prev_roi_gray = None
+        self.prev_frame_gray = None
+        default_model = Path(__file__).resolve().parents[2] / "models" / "shuttle-yolo11.pt"
+        configured_model = Path(
+            model_path or os.getenv("SHUTTLE_MODEL_PATH") or default_model
+        )
+        self.model_path = str(configured_model)
+        self.heuristic_enabled = not configured_model.is_file()
 
-        if model_path:
+        if configured_model.is_file():
             try:
                 from ultralytics import YOLO
 
-                self.model = YOLO(model_path)
+                self.model = YOLO(str(configured_model))
             except Exception as e:
-                print(f"[ShuttleDetector] Failed to load model {model_path}: {e}")
+                print(f"[ShuttleDetector] Failed to load model {configured_model}: {e}")
 
     def detect(
         self,
@@ -42,17 +51,30 @@ class ShuttleDetector:
         """
         h, w, _ = frame.shape
         candidates = []
+        current_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if HAS_OPENCV else None
+        previous_gray = self.prev_frame_gray
+        self.prev_frame_gray = current_gray
 
         # Method 1: YOLO model if custom trained weights provided
         if self.model is not None:
-            results = self.model(frame, conf=self.conf_threshold, verbose=False)[0]
+            results = self.model(
+                frame,
+                conf=self.conf_threshold,
+                imgsz=int(os.getenv("SHUTTLE_IMAGE_SIZE", "960")),
+                verbose=False,
+            )[0]
 
             for box in results.boxes:
                 conf = float(box.conf[0].cpu().numpy())
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().tolist()
+                cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+                if cy < h * 0.30 and not self._has_local_motion(
+                    current_gray, previous_gray, (x1, y1, x2, y2)
+                ):
+                    continue
                 candidates.append({
                     "bbox": [round(c, 1) for c in [x1, y1, x2, y2]],
-                    "center": [round((x1 + x2) / 2.0, 1), round((y1 + y2) / 2.0, 1)],
+                    "center": [round(cx, 1), round(cy, 1)],
                     "confidence": round(conf, 3),
                     "score": conf,
                 })
@@ -70,6 +92,11 @@ class ShuttleDetector:
                     "visible": True,
                     "candidates": candidates,
                 }
+            return {"visible": False, "candidates": []}
+
+        # A present-but-broken custom model must fail closed instead of locking
+        # the marker onto moving white clothes through the heuristic fallback.
+        if not self.heuristic_enabled:
             return {"visible": False, "candidates": []}
 
         # Method 2: Temporal Motion Differencing + Adaptive White HSV Blob Detection
@@ -90,22 +117,22 @@ class ShuttleDetector:
                 upper_white = np.array([180, 85, 255], dtype=np.uint8)
                 white_mask = cv2.inRange(hsv, lower_white, upper_white)
 
-                # Motion differencing mask
-                target_mask = white_mask
-                if self.prev_roi_gray is not None and self.prev_roi_gray.shape == gray.shape:
-                    diff = cv2.absdiff(gray, self.prev_roi_gray)
-                    _, diff_mask = cv2.threshold(diff, 18, 255, cv2.THRESH_BINARY)
-                    # Motion combined with white color
-                    motion_white = cv2.bitwise_and(white_mask, diff_mask)
-                    if cv2.countNonZero(motion_white) >= 2:
-                        target_mask = motion_white
+                if self.prev_roi_gray is None or self.prev_roi_gray.shape != gray.shape:
+                    self.prev_roi_gray = gray.copy()
+                    return {"visible": False, "candidates": []}
 
-                # Store current gray ROI for next frame motion diff
+                diff = cv2.absdiff(gray, self.prev_roi_gray)
                 self.prev_roi_gray = gray.copy()
+                _, diff_mask = cv2.threshold(diff, 18, 255, cv2.THRESH_BINARY)
+                diff_mask = cv2.dilate(
+                    diff_mask,
+                    cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+                )
+                target_mask = cv2.bitwise_and(white_mask, diff_mask)
 
-                # Clean small noise
+                # Reconnect tiny motion-blurred shuttle fragments without erasing them.
                 kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-                target_mask = cv2.morphologyEx(target_mask, cv2.MORPH_OPEN, kernel)
+                target_mask = cv2.morphologyEx(target_mask, cv2.MORPH_CLOSE, kernel)
 
                 contours, _ = cv2.findContours(target_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -150,7 +177,7 @@ class ShuttleDetector:
                                     round(cy + bh / 2, 1),
                                 ],
                                 "center": [round(cx, 1), round(cy, 1)],
-                                "confidence": 0.88,
+                                "confidence": round(min(0.49, 0.15 + area / 500.0), 3),
                                 "score": score,
                             })
 
@@ -172,3 +199,23 @@ class ShuttleDetector:
                 print(f"[ShuttleDetector] Error: {e}")
 
         return {"visible": False, "candidates": []}
+
+    @staticmethod
+    def _has_local_motion(
+        current: Optional[np.ndarray],
+        previous: Optional[np.ndarray],
+        bbox: tuple[float, float, float, float],
+    ) -> bool:
+        if current is None or previous is None or current.shape != previous.shape:
+            return False
+        height, width = current.shape
+        x1, y1, x2, y2 = bbox
+        pad = 4
+        left, right = max(0, int(x1) - pad), min(width, int(x2) + pad + 1)
+        top, bottom = max(0, int(y1) - pad), min(height, int(y2) + pad + 1)
+        if right <= left or bottom <= top:
+            return False
+        difference = cv2.absdiff(
+            current[top:bottom, left:right], previous[top:bottom, left:right]
+        )
+        return int(np.count_nonzero(difference >= 12)) >= 2

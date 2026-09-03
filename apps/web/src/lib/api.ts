@@ -92,7 +92,10 @@ export interface FrameRecord {
     y_norm: number;
     center_norm?: [number, number];
     visible: boolean;
+    observed?: boolean;
     confidence?: number;
+    projection_valid?: boolean;
+    projection_mode?: string;
   };
 }
 
@@ -122,6 +125,8 @@ export interface MatchAnalytics {
     duration_seconds: number;
     mode: string;
     is_doubles?: boolean;
+    display_width?: number;
+    display_height?: number;
   };
   overview: {
     total_rallies: number;
@@ -147,6 +152,15 @@ export interface MatchAnalytics {
   heatmaps?: Record<string, any>;
   court_nodes?: Record<string, [number, number]>;
   court_lines?: Record<string, [[number, number], [number, number]]>;
+  net_detection?: {
+    top_left: [number, number];
+    top_right: [number, number];
+    bottom_left: [number, number];
+    bottom_right: [number, number];
+    floor_left: [number, number];
+    floor_right: [number, number];
+    confidence: number;
+  } | null;
   court_calibration?: CourtCalibrationData;
   scoreboard?: Record<string, any>;
   frame_records?: FrameRecord[];
@@ -237,6 +251,7 @@ export function mergeMatchAnalytics(
     heatmaps: incoming.heatmaps ?? base.heatmaps,
     court_nodes: incoming.court_nodes ?? base.court_nodes,
     court_lines: incoming.court_lines ?? base.court_lines,
+    net_detection: incoming.net_detection ?? base.net_detection,
     court_calibration: incoming.court_calibration ?? base.court_calibration,
     scoreboard: incoming.scoreboard ?? base.scoreboard,
     frame_records: Array.isArray(incoming.frame_records)
