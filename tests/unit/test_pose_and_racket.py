@@ -135,3 +135,53 @@ def test_player_tracker_retains_pose_between_pose_intervals():
     result = tracker.update([base], frame_idx=2)
 
     assert result[0]["pose"] == pose
+
+
+def test_player_tracker_keeps_far_athlete_when_official_has_higher_confidence():
+    tracker = PlayerTracker(smoothing_alpha=1.0)
+    athlete = {
+        "bbox": [280.0, 80.0, 340.0, 200.0],
+        "bottom_center": [310.0, 200.0],
+        "confidence": 0.7,
+        "role": "far",
+    }
+    tracker.update([athlete], frame_idx=1)
+
+    official = {
+        "bbox": [80.0, 90.0, 140.0, 200.0],
+        "bottom_center": [110.0, 200.0],
+        "confidence": 0.99,
+        "role": "far",
+    }
+    moved_athlete = {
+        **athlete,
+        "bbox": [290.0, 80.0, 350.0, 200.0],
+        "bottom_center": [320.0, 200.0],
+        "confidence": 0.65,
+    }
+
+    result = tracker.update([official, moved_athlete], frame_idx=2)
+
+    assert result[0]["bottom_center"] == [320.0, 200.0]
+
+
+def test_player_tracker_reacquires_athlete_after_broadcast_cut():
+    tracker = PlayerTracker(smoothing_alpha=1.0)
+    athlete = {
+        "bbox": [280.0, 80.0, 340.0, 200.0],
+        "bottom_center": [310.0, 200.0],
+        "confidence": 0.8,
+        "role": "far",
+    }
+    tracker.update([athlete], frame_idx=1)
+    for frame_idx in range(2, 20):
+        tracker.update([], frame_idx=frame_idx)
+
+    replacement = {
+        **athlete,
+        "bbox": [430.0, 80.0, 490.0, 200.0],
+        "bottom_center": [460.0, 200.0],
+    }
+    result = tracker.update([replacement], frame_idx=20)
+
+    assert result[0]["bottom_center"] == [460.0, 200.0]

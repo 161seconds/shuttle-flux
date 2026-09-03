@@ -75,6 +75,7 @@ class CourtCalibrator:
         self.H: Optional[np.ndarray] = None
         self.H_inv: Optional[np.ndarray] = None
         self.transformer: Optional[Any] = None
+        self.calibration_image_points = np.empty((0, 2), dtype=np.float32)
         self.court_keypoints_metric = get_standard_court_keypoints(is_doubles)
 
     def calibrate_from_points(
@@ -103,6 +104,7 @@ class CourtCalibrator:
             return False
 
         self.H = H
+        self.calibration_image_points = np.asarray(src_image_points, dtype=np.float32)
         self.transformer = None
         try:
             self.H_inv = np.linalg.inv(H)
@@ -111,6 +113,35 @@ class CourtCalibrator:
             return False
 
         return True
+
+    def frame_matches_calibration(
+        self, frame: np.ndarray, min_match_ratio: float = 0.55
+    ) -> bool:
+        """Rejects broadcast cuts whose pixels no longer match calibrated court lines."""
+        if not HAS_OPENCV or len(self.calibration_image_points) < 4:
+            return True
+        # ponytail: fixed-camera line check; recalibrate per shot for moving cameras.
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        height, width = hsv.shape[:2]
+        matches = 0
+        for x_value, y_value in self.calibration_image_points:
+            x, y = int(round(float(x_value))), int(round(float(y_value)))
+            patch = hsv[
+                max(0, y - 4) : min(height, y + 5),
+                max(0, x - 4) : min(width, x + 5),
+            ]
+            if not patch.size:
+                continue
+            white = (patch[:, :, 1] < 75) & (patch[:, :, 2] > 170)
+            yellow = (
+                (patch[:, :, 0] >= 14)
+                & (patch[:, :, 0] <= 38)
+                & (patch[:, :, 1] >= 65)
+                & (patch[:, :, 2] >= 120)
+            )
+            if np.count_nonzero(white | yellow) >= 2:
+                matches += 1
+        return matches / len(self.calibration_image_points) >= min_match_ratio
 
     def calibrate_standard_corners(
         self,
@@ -185,8 +216,8 @@ class CourtCalibrator:
     def filter_players(
         self,
         detections: List[Dict[str, Any]],
-        margin_x: float = 0.04,
-        margin_y: float = 0.12,
+        margin_x: float = 0.025,
+        margin_y: float = 0.035,
     ) -> List[Dict[str, Any]]:
         """Keeps people whose foot point belongs to the calibrated match court."""
         valid = [detection for detection in detections if len(detection.get("bottom_center", [])) == 2]
@@ -194,7 +225,7 @@ class CourtCalibrator:
             return []
 
         court_points = self.transform_image_to_court(
-            np.asarray([detection["bottom_center"] for detection in valid], dtype=np.float32),
+            np.asarray([player_floor_point(detection) for detection in valid], dtype=np.float32),
             clip_bounds=False,
         )
         if len(court_points) != len(valid):

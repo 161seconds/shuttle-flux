@@ -43,6 +43,7 @@ def test_filter_players_keeps_match_court_and_rejects_adjacent_people():
         {"bottom_center": [500.0, 750.0], "role": "far", "confidence": 0.6},
         {"bottom_center": [1120.0, 500.0], "role": "near", "confidence": 1.0},
         {"bottom_center": [500.0, 1250.0], "role": "near", "confidence": 1.0},
+        {"bottom_center": [500.0, -50.0], "role": "far", "confidence": 1.0},
     ]
 
     players = calibrator.filter_players(detections)
@@ -62,6 +63,22 @@ def test_player_floor_point_prefers_visible_ankles():
     }
 
     assert player_floor_point(player) == [50.0, 98.0]
+
+
+def test_frame_calibration_rejects_broadcast_camera_cut():
+    calibrator = CourtCalibrator()
+    assert calibrator.calibrate_standard_corners(
+        bottom_left_px=(10.0, 90.0),
+        bottom_right_px=(90.0, 90.0),
+        top_left_px=(10.0, 10.0),
+        top_right_px=(90.0, 10.0),
+    )
+    main_view = np.zeros((100, 100, 3), dtype=np.uint8)
+    for x, y in calibrator.calibration_image_points.astype(int):
+        main_view[max(0, y - 1) : y + 2, max(0, x - 1) : x + 2] = 255
+
+    assert calibrator.frame_matches_calibration(main_view)
+    assert not calibrator.frame_matches_calibration(np.zeros_like(main_view))
 
 
 def test_display_video_upscale_targets_next_requested_resolution():

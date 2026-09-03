@@ -180,11 +180,24 @@ def process_video_pipeline(match_id: str, video_path: str):
             if frame_idx % step_stride != 0:
                 continue
 
-            # Run detection
-            raw_dets = detector.run_frame(frame, player_filter=calibrator.filter_players)
-
-            # Run tracking
-            tracked = tracker.update(raw_dets, frame_idx, timestamp, frame=frame)
+            if calibrator.frame_matches_calibration(frame):
+                raw_dets = detector.run_frame(frame, player_filter=calibrator.filter_players)
+                tracked = tracker.update(raw_dets, frame_idx, timestamp, frame=frame)
+            else:
+                # Age existing tracks, but never draw them over close-ups or alternate cameras.
+                tracker.update(
+                    {"players": [], "rackets": [], "shuttle": None},
+                    frame_idx,
+                    timestamp,
+                    frame=frame,
+                )
+                if detector.shuttle_detector is not None:
+                    detector.shuttle_detector.reset_temporal_state(frame)
+                tracked = {
+                    "players": [],
+                    "rackets": [],
+                    "shuttle": {"visible": False, "observed": False},
+                }
 
             if (
                 scoreboard_reader.available

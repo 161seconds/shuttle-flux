@@ -39,6 +39,12 @@ class ShuttleDetector:
             except Exception as e:
                 print(f"[ShuttleDetector] Failed to load model {configured_model}: {e}")
 
+    def reset_temporal_state(self, frame: np.ndarray) -> None:
+        self.prev_roi_gray = None
+        self.prev_frame_gray = (
+            cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if HAS_OPENCV else None
+        )
+
     def detect(
         self,
         frame: np.ndarray,
@@ -92,19 +98,19 @@ class ShuttleDetector:
                     "visible": True,
                     "candidates": candidates,
                 }
-            return {"visible": False, "candidates": []}
 
         # A present-but-broken custom model must fail closed instead of locking
         # the marker onto moving white clothes through the heuristic fallback.
-        if not self.heuristic_enabled:
+        if not self.heuristic_enabled and self.model is None:
             return {"visible": False, "candidates": []}
 
         # Method 2: Temporal Motion Differencing + Adaptive White HSV Blob Detection
         if HAS_OPENCV:
             try:
-                # Shuttlecock travels in the playing airspace: 0.08 * h < y < 0.85 * h
-                roi_y1 = int(h * 0.08)
-                roi_y2 = int(h * 0.85)
+                # Include court floor so landed shuttles and post-smash slides remain visible.
+                floor_recovery_only = self.model is not None
+                roi_y1 = int(h * (0.58 if floor_recovery_only else 0.08))
+                roi_y2 = int(h * 0.98)
                 roi_x1 = int(w * 0.10)
                 roi_x2 = int(w * 0.90)
 
@@ -117,12 +123,18 @@ class ShuttleDetector:
                 upper_white = np.array([180, 85, 255], dtype=np.uint8)
                 white_mask = cv2.inRange(hsv, lower_white, upper_white)
 
-                if self.prev_roi_gray is None or self.prev_roi_gray.shape != gray.shape:
+                if floor_recovery_only:
+                    if previous_gray is None:
+                        return {"visible": False, "candidates": []}
+                    previous_roi_gray = previous_gray[roi_y1:roi_y2, roi_x1:roi_x2]
+                else:
+                    if self.prev_roi_gray is None or self.prev_roi_gray.shape != gray.shape:
+                        self.prev_roi_gray = gray.copy()
+                        return {"visible": False, "candidates": []}
+                    previous_roi_gray = self.prev_roi_gray
                     self.prev_roi_gray = gray.copy()
-                    return {"visible": False, "candidates": []}
 
-                diff = cv2.absdiff(gray, self.prev_roi_gray)
-                self.prev_roi_gray = gray.copy()
+                diff = cv2.absdiff(gray, previous_roi_gray)
                 _, diff_mask = cv2.threshold(diff, 18, 255, cv2.THRESH_BINARY)
                 diff_mask = cv2.dilate(
                     diff_mask,
@@ -138,14 +150,16 @@ class ShuttleDetector:
 
                 for cnt in contours:
                     area = cv2.contourArea(cnt)
-                    # Shuttlecock size in typical broadcast 720p/1080p is between 4 and 250 pixels
-                    if 4 <= area <= 250:
+                    if area >= 4:
                         bx, by, bw, bh = cv2.boundingRect(cnt)
                         aspect_ratio = float(bw) / max(1, bh)
+                        cy = roi_y1 + by + bh / 2.0
+                        on_floor = cy >= h * 0.58
                         # Compact / flight streak shape
-                        if 0.20 <= aspect_ratio <= 4.0:
+                        if area <= (480 if on_floor else 250) and 0.20 <= aspect_ratio <= (
+                            8.0 if on_floor else 4.0
+                        ):
                             cx = roi_x1 + bx + bw / 2.0
-                            cy = roi_y1 + by + bh / 2.0
 
                             # Exclude if candidate is inside any player's bounding box
                             # Expand player box by 30% width and 15% height to cover swinging rackets
@@ -160,7 +174,16 @@ class ShuttleDetector:
                                         py_min = pbox[1] - ph * 0.15
                                         py_max = pbox[3] + ph * 0.10
                                         
-                                        if (px_min <= cx <= px_max) and (py_min <= cy <= py_max):
+                                        at_feet = (
+                                            on_floor
+                                            and cy >= pbox[3] - ph * 0.08
+                                            and aspect_ratio >= 1.2
+                                        )
+                                        if (
+                                            px_min <= cx <= px_max
+                                            and py_min <= cy <= py_max
+                                            and not at_feet
+                                        ):
                                             in_player = True
                                             break
                                 if in_player:

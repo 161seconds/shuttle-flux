@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 
 from ml.shuttle_detection.detector import HAS_OPENCV, ShuttleDetector
@@ -66,3 +68,37 @@ def test_upper_airspace_candidate_requires_local_motion():
     assert ShuttleDetector._has_local_motion(
         current, previous, (40.0, 10.0, 45.0, 15.0)
     )
+
+
+def test_detector_keeps_shuttle_sliding_near_court_floor(monkeypatch, tmp_path):
+    if not HAS_OPENCV:
+        return
+    monkeypatch.setenv("SHUTTLE_MODEL_PATH", str(tmp_path / "missing.pt"))
+    detector = ShuttleDetector()
+    first = np.zeros((200, 300, 3), dtype=np.uint8)
+    second = first.copy()
+    second[187:190, 135:149] = 255
+
+    detector.detect(first)
+    result = detector.detect(second)
+
+    assert result["visible"]
+    assert result["center"][1] > 170
+
+
+def test_custom_model_uses_motion_fallback_only_for_court_floor(monkeypatch, tmp_path):
+    if not HAS_OPENCV:
+        return
+    monkeypatch.setenv("SHUTTLE_MODEL_PATH", str(tmp_path / "missing.pt"))
+    detector = ShuttleDetector()
+    detector.model = lambda *args, **kwargs: [SimpleNamespace(boxes=[])]
+    detector.heuristic_enabled = False
+    first = np.zeros((200, 300, 3), dtype=np.uint8)
+    second = first.copy()
+    second[187:190, 135:149] = 255
+
+    detector.detect(first)
+    result = detector.detect(second)
+
+    assert result["visible"]
+    assert result["center"][1] > 170

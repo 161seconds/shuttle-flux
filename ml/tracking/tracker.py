@@ -113,7 +113,34 @@ class PlayerTracker:
 
         if len(candidates) == 1 or not self.is_doubles_mode:
             # Exactly 1 player on this side: update primary player ONLY
-            cand = candidates[0]
+            previous = self.tracks.get(primary_id)
+            cand = (
+                min(
+                    candidates,
+                    key=lambda candidate: np.hypot(
+                        candidate["bottom_center"][0]
+                        - previous["bottom_center"][0],
+                        candidate["bottom_center"][1]
+                        - previous["bottom_center"][1],
+                    ),
+                )
+                if previous
+                else candidates[0]
+            )
+            if previous:
+                jump = np.hypot(
+                    cand["bottom_center"][0] - previous["bottom_center"][0],
+                    cand["bottom_center"][1] - previous["bottom_center"][1],
+                )
+                previous_height = previous["bbox"][3] - previous["bbox"][1]
+                current_height = cand["bbox"][3] - cand["bbox"][1]
+                if jump > max(45.0, 0.75 * max(previous_height, current_height)):
+                    self.missing_counts[primary_id] += 1
+                    if self.missing_counts[primary_id] <= self.max_hold_frames:
+                        held = dict(previous)
+                        held["frame_idx"] = frame_idx
+                        held["confidence"] = max(0.35, held["confidence"] * 0.94)
+                        return [self._public_track(held)]
             self.missing_counts[primary_id] = 0
             self.tracks[primary_id] = self._build_smoothed_track(primary_id, cand, side_label, frame_idx)
             results.append(self._public_track(self.tracks[primary_id]))
